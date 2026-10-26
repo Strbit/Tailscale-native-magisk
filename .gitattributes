@@ -1,0 +1,11 @@
+# Android shell scripts and Magisk module files must use LF.
+# A CRLF shebang breaks scripts inside the installed module, so keep the
+# repository normalized regardless of the contributor's platform.
+* text=auto eol=lf
+
+*.zip binary
+*.png binary
+*.jpg binary
+*.webp binary
+*.ttf binary
+*.otf binary
