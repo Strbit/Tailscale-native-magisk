@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.5.0-zh — 2026-10-26
+
+Chinese localization release. The module, its scripts, and its security model
+behave as in `0.4.6-bootstrap`; this release adds bilingual UI and tooling on
+top and moves the project to the `Strbit` fork.
+
+### 中文
+
+- **双语仪表盘**：新增离线词典与 `I18N` API，页头提供语言切换按钮，切换后立即
+  重渲染，无需刷新页面。
+- **语言持久化**：语言选择写入 `/data/adb/tailscale-native/ui-language`，Web 层
+  与 shell 层共用同一事实源；未设置时按系统语言自动判定，英文为默认回退。
+- **shell 与安装器本地化**：模块自身产生的所有面向用户的输出改走 `msg` /
+  `msgf`；Magisk 安装器每条中文提示附带英文括注，确保 recovery 环境缺字体时仍
+  可读。`tailscale` / `tailscaled` 的原始输出保持原文。
+- **状态显示映射**：`BackendState`、`integrity`、`interface` 等字段仍以英文原值
+  参与逻辑判断，仅在显示层映射为本地化文本。
+- **i18n 校验工具**：新增 `tools/check-i18n.js`，检查双语文典键与占位符对齐、
+  HTML/JS 引用的键是否存在、shell 字典与 `%s` 一致性、模块元数据与发布包结构。
+- **换行符修复**：所有文本文件统一为 LF 且无 BOM，避免 Android shell 因 CRLF
+  无法执行。
+- **fork 化**：版本号改为 `0.5.0-zh`（versionCode `500`），`update.json`、
+  `module.prop` 的 `updateJson` 与发布资产链接均指向
+  `Strbit/Tailscale-native-magisk`。
+
+### English
+
+- **Bilingual dashboard**: adds an offline dictionary and `I18N` API with a
+  header language switch that re-renders immediately, without a page reload.
+- **Persisted language**: the choice is written to
+  `/data/adb/tailscale-native/ui-language` and shared by the web and shell
+  layers. Without a stored value it follows the system language, falling back
+  to English.
+- **Localized shell and installer output**: every user-facing line produced by
+  the module's own scripts now goes through `msg` / `msgf`. Each Chinese
+  installer message keeps an English gloss in parentheses so it stays readable
+  when recovery lacks Chinese fonts. Raw `tailscale` / `tailscaled` output is
+  passed through unchanged.
+- **Display-only state mapping**: `BackendState`, `integrity`, and `interface`
+  values still drive logic in their original English form and are translated
+  only at the display layer.
+- **i18n checks**: adds `tools/check-i18n.js` to verify dictionary key and
+  placeholder parity, referenced HTML/JS keys, shell dictionary alignment and
+  `%s` counts, module metadata, and release archive structure.
+- **Line-ending fix**: all text files are LF and BOM-free so Android shell
+  scripts remain executable.
+- **Forked release**: version `0.5.0-zh` (versionCode `500`); `update.json`,
+  the `updateJson` in `module.prop`, and release asset URLs now point at
+  `Strbit/Tailscale-native-magisk`.
+
 ## 0.4.6-bootstrap — 2026-08-12
 
 - Read an authentication URL directly from the live daemon status before

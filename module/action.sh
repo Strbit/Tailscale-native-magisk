@@ -2,36 +2,37 @@
 
 MODDIR=${0%/*}
 . "$MODDIR/common.sh"
+. "$MODDIR/i18n.sh"
 
 TAILSCALE="$MODDIR/bin/tailscale"
 
 if [ "$1" != "binary-update" ]; then
     if ! pm path io.github.a13e300.ksuwebui >/dev/null 2>&1; then
-        echo "KsuWebUIStandalone is required to open this module's dashboard."
-        echo "Install it, then tap Action again."
-        echo "https://github.com/KOWX712/KsuWebUIStandalone/releases"
+        msg action.webui_required
+        msg action.webui_install_hint
+        msg action.webui_url
         exit 1
     fi
-    echo "Opening Native Tailscale dashboard..."
+    msg action.opening
     am start \
         -n io.github.a13e300.ksuwebui/.WebUIActivity \
         -d ksuwebui://webui/native_tailscale \
         --es id native_tailscale \
         --es name "Native Tailscale TUN" >/dev/null 2>&1 || {
-            echo "ERROR: KsuWebUIStandalone could not open the dashboard."
+            msg error.webui_open
             exit 1
         }
     exit 0
 fi
 
 if ! pid_is_ours; then
-    echo "Native tailscaled is not running; starting it..."
+    msg action.starting_daemon
     if official_tailscale_vpn_active; then
-        echo "ERROR: Disconnect the official Tailscale Android app first."
+        msg error.official_vpn
         exit 1
     fi
     if ! start_daemon; then
-        echo "ERROR: tailscaled did not start. Check $LOGFILE"
+        msgf error.daemon_start "$LOGFILE"
         exit 1
     fi
 fi
@@ -43,16 +44,16 @@ BACKEND_STATE="$(printf '%s\n' "$STATUS_JSON" |
 
 case "$BACKEND_STATE" in
     NeedsLogin|NoState)
-        echo "ERROR: Sign in from the dashboard before updating Tailscale binaries."
+        msg error.signin_required
         exit 1
         ;;
     NeedsMachineAuth)
-        echo "This device is signed in but is waiting for an administrator to approve it."
-        echo "Approve it in the Tailscale admin console before updating binaries."
+        msg action.needs_auth_1
+        msg action.needs_auth_2
         exit 1
         ;;
     "")
-        echo "ERROR: Could not read tailscaled status. Check $LOGFILE"
+        msgf error.status_unread "$LOGFILE"
         exit 1
         ;;
 esac
@@ -93,94 +94,98 @@ connection_summary() {
     ip link show tailscale0 >/dev/null 2>&1 && LIVE_TUN=up
 
     echo
-    echo "Connection summary"
-    echo "State: ${LIVE_STATE:-unknown}"
-    echo "Tailscale IP: ${LIVE_IPV4:-not assigned}"
-    echo "Device: ${LIVE_HOSTNAME:-$(android_device_hostname)}"
-    echo "TUN interface: $LIVE_TUN"
+    msg summary.title
+    msgf summary.state "$LIVE_STATE"
+    if [ -n "$LIVE_IPV4" ]; then
+        msgf summary.ip "$LIVE_IPV4"
+    else
+        msg summary.ip_unassigned
+    fi
+    msgf summary.device "${LIVE_HOSTNAME:-$(android_device_hostname)}"
+    msgf summary.tun "$LIVE_TUN"
     if [ "$LIVE_STATE" = Running ] && [ "$LIVE_TUN" = up ]; then
-        echo "Tailnet routing is active."
+        msg summary.active
     fi
 }
 
-echo "Native Tailscale updater"
+msg update.title
 echo
 
 if ! verify_binary_hashes; then
-    echo "ERROR: Installed binaries do not match their recorded SHA-256 hashes."
-    echo "Reinstall the module or review the files before attempting an update."
+    msg error.hash_mismatch
+    msg update.reinstall_hint
     exit 1
 fi
 
 CURRENT_VERSION="$("$MODDIR/bin/tailscaled" --version 2>/dev/null | head -n 1)"
 [ -n "$CURRENT_VERSION" ] || CURRENT_VERSION="unknown"
-echo "Installed Tailscale: $CURRENT_VERSION"
+msgf update.installed_version "$CURRENT_VERSION"
 
 if ! download_file "$REPO_RAW/commit" "$REMOTE_COMMIT_FILE"; then
-    echo "ERROR: Could not download the upstream commit marker."
+    msg error.commit_download
     exit 1
 fi
 
 REMOTE_COMMIT="$(tr -d '\r\n ' < "$REMOTE_COMMIT_FILE")"
 if ! valid_commit_marker "$REMOTE_COMMIT"; then
-    echo "ERROR: Invalid upstream commit marker."
+    msg error.commit_invalid
     exit 1
 fi
 
 INSTALLED_COMMIT="$(cat "$INSTALLED_COMMIT_FILE" 2>/dev/null | tr -d '\r\n ')"
-echo "Installed source commit: ${INSTALLED_COMMIT:-unknown}"
-echo "Upstream source commit:  $REMOTE_COMMIT"
+msgf update.installed_commit "${INSTALLED_COMMIT:-unknown}"
+msgf update.upstream_commit "$REMOTE_COMMIT"
 
 if [ "$REMOTE_COMMIT" = "$INSTALLED_COMMIT" ]; then
     echo
-    echo "Already current."
+    msg update.up_to_date
     connection_summary
     exit 0
 fi
 
 echo
-echo "Downloading new ARM64 binaries..."
+msg update.downloading
 
 if ! download_file "$REPO_RAW/arm64/tailscale?commit=$REMOTE_COMMIT" "$TMP/tailscale"; then
-    echo "ERROR: tailscale download failed."
+    msg error.download_tailscale
     exit 1
 fi
 
 if ! download_file "$REPO_RAW/arm64/tailscaled?commit=$REMOTE_COMMIT" "$TMP/tailscaled"; then
-    echo "ERROR: tailscaled download failed."
+    msg error.download_tailscaled
     exit 1
 fi
 
 if ! download_file "$REPO_RAW/commit" "$POST_COMMIT_FILE"; then
-    echo "ERROR: Could not recheck the upstream commit marker."
+    msg error.commit_recheck
     exit 1
 fi
 
 POST_COMMIT="$(tr -d '\r\n ' < "$POST_COMMIT_FILE")"
 if ! valid_commit_marker "$POST_COMMIT"; then
-    echo "ERROR: Invalid upstream commit marker after download."
+    msg error.commit_invalid_after
     exit 1
 fi
 
 if [ "$POST_COMMIT" != "$REMOTE_COMMIT" ]; then
-    echo "ERROR: Upstream changed during download. Run Update Tailscale again."
+    msg error.upstream_changed
     exit 1
 fi
 
 chmod 0755 "$TMP/tailscale" "$TMP/tailscaled"
 
 if ! is_elf "$TMP/tailscale" || ! is_elf "$TMP/tailscaled"; then
-    echo "ERROR: A downloaded file is not an ELF executable."
+    msg error.not_elf
     exit 1
 fi
 
 NEW_VERSION="$("$TMP/tailscaled" --version 2>/dev/null | head -n 1)"
 if [ -z "$NEW_VERSION" ]; then
-    echo "ERROR: The downloaded daemon did not execute."
+    msg error.daemon_not_execute
     exit 1
 fi
 
-echo "Downloaded Tailscale: $NEW_VERSION"
+msgf update.downloaded_version "$NEW_VERSION"
 sha256sum "$TMP/tailscale" "$TMP/tailscaled" |
     tee "$BASE/last-update.sha256"
 
@@ -197,7 +202,7 @@ cp -f "$TMP/tailscale" "$MODDIR/bin/tailscale"
 cp -f "$TMP/tailscaled" "$MODDIR/bin/tailscaled"
 chmod 0755 "$MODDIR/bin/tailscale" "$MODDIR/bin/tailscaled"
 if ! record_binary_hashes; then
-    echo "ERROR: Could not record the downloaded binary hashes."
+    msg error.record_hashes
     [ -f "$MODDIR/bin/tailscale.bak" ] &&
         cp -f "$MODDIR/bin/tailscale.bak" "$MODDIR/bin/tailscale"
     [ -f "$MODDIR/bin/tailscaled.bak" ] &&
@@ -211,21 +216,21 @@ fi
 if official_tailscale_vpn_active; then
     printf '%s\n' "$REMOTE_COMMIT" > "$INSTALLED_COMMIT_FILE"
     echo
-    echo "Updated successfully."
-    echo "Native daemon was not started because the official Android Tailscale VPN is active."
+    msg update.success
+    msg update.not_started_official_vpn
     exit 0
 fi
 
 if start_daemon; then
     printf '%s\n' "$REMOTE_COMMIT" > "$INSTALLED_COMMIT_FILE"
     echo
-    echo "Update succeeded and tailscaled restarted."
+    msg update.success_restarted
     connection_summary
     exit 0
 fi
 
 echo
-echo "New daemon failed to start; rolling back."
+msg update.rolling_back
 
 stop_daemon
 [ -f "$MODDIR/bin/tailscale.bak" ] &&
@@ -240,5 +245,5 @@ if [ "$WAS_RUNNING" -eq 1 ]; then
     start_daemon || true
 fi
 
-echo "Rollback complete. Check $LOGFILE"
+msgf update.rollback_done "$LOGFILE"
 exit 1

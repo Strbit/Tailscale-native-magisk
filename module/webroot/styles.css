@@ -348,3 +348,38 @@ dialog::backdrop { background: rgba(0, 2, 7, .82); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* 语言切换按钮：跟随 cyber-terminal 主题，窄屏不挤压标题 */
+#langToggle {
+  flex: 0 0 auto;
+  min-width: 44px;
+  min-height: 34px;
+  padding: 0 10px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--cyan);
+  border-radius: 8px;
+  background: #050912;
+  color: var(--cyan);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: inset 0 0 10px var(--cyan-soft);
+  transition: background .15s, color .15s, box-shadow .15s;
+}
+
+#langToggle:hover,
+#langToggle:focus-visible {
+  background: var(--cyan-soft);
+  color: #eafcff;
+  box-shadow: 0 0 12px var(--cyan-soft);
+}
+
+#langToggle:active { transform: translateY(1px); }
+
+@media (max-width: 360px) {
+  #langToggle { min-width: 40px; padding: 0 7px; font-size: 10px; letter-spacing: .06em; }
+}

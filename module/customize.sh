@@ -1,10 +1,13 @@
 #!/system/bin/sh
 
+# 安装器在 recovery 环境运行，可能没有中文字体：所有中文提示都附带英文括注。
+. "$MODPATH/i18n.sh"
+
 ui_print "*******************************"
-ui_print " Native Tailscale TUN module"
+msg install.header
 ui_print "*******************************"
 
-[ "$ARCH" = "arm64" ] || abort "This package currently supports ARM64 only."
+[ "$ARCH" = "arm64" ] || abort "$(msg install.arm64_only)"
 
 RAW=https://raw.githubusercontent.com/android-kxxt/external_tailscale_prebuilt/main
 mkdir -p "$MODPATH/bin"
@@ -50,7 +53,7 @@ valid_commit_marker_installer() {
     esac
 }
 
-ui_print "- Fetching current patched binaries"
+msg install.fetching
 
 FETCHED=false
 if download_installer_file "$RAW/commit" "$PRE_COMMIT_FILE"; then
@@ -72,7 +75,7 @@ if download_installer_file "$RAW/commit" "$PRE_COMMIT_FILE"; then
             printf '%s\n' "$PRE_COMMIT" > "$MODPATH/upstream_commit"
             FETCHED=true
         else
-            ui_print "- Upstream changed during download; discarding the download"
+            msg install.upstream_changed
         fi
     fi
 fi
@@ -80,7 +83,7 @@ fi
 rm -f "$PRE_COMMIT_FILE" "$POST_COMMIT_FILE"
 
 if [ "$FETCHED" != true ]; then
-    ui_print "- Download failed; looking for your existing tested binaries"
+    msg install.download_failed
     rm -f "$MODPATH/upstream_commit"
 
     for SRC in \
@@ -91,34 +94,34 @@ if [ "$FETCHED" != true ]; then
         if [ -x "$SRC/tailscale" ] && [ -x "$SRC/tailscaled" ]; then
             cp -f "$SRC/tailscale" "$MODPATH/bin/tailscale"
             cp -f "$SRC/tailscaled" "$MODPATH/bin/tailscaled"
-            ui_print "- Reused binaries from $SRC"
+            msgf install.reused_binaries "$SRC"
             FETCHED=true
             break
         fi
     done
 fi
 
-[ "$FETCHED" = true ] || abort "Could not download or locate existing Tailscale binaries."
+[ "$FETCHED" = true ] || abort "$(msg install.abort_no_binaries)"
 
 chmod 0755 "$MODPATH/bin/tailscale" "$MODPATH/bin/tailscaled"
 
 (
-    cd "$MODPATH" || abort "Could not enter the module directory."
+    cd "$MODPATH" || abort "$(msg install.abort_cd)"
     sha256sum bin/tailscale bin/tailscaled > binary-sha256 ||
-        abort "Could not record binary SHA-256 hashes."
+        abort "$(msg install.abort_hashes)"
 )
 mkdir -p /data/adb/tailscale-native
 chmod 0700 /data/adb/tailscale-native
 printf '%s\n' verified > /data/adb/tailscale-native/last-integrity-status
 
 is_elf_installer "$MODPATH/bin/tailscale" ||
-    abort "tailscale is not a valid ELF executable."
+    abort "$(msg install.abort_tailscale_elf)"
 is_elf_installer "$MODPATH/bin/tailscaled" ||
-    abort "tailscaled is not a valid ELF executable."
+    abort "$(msg install.abort_tailscaled_elf)"
 
 TS_VERSION="$("$MODPATH/bin/tailscaled" --version 2>/dev/null | head -n 1)"
-[ -n "$TS_VERSION" ] || abort "tailscaled could not execute on this device."
-ui_print "- Installed Tailscale $TS_VERSION"
+[ -n "$TS_VERSION" ] || abort "$(msg install.abort_exec)"
+msgf install.installed_version "$TS_VERSION"
 
 # Prevent any standalone launcher from running alongside the module.
 # Magisk executes every executable file in service.d regardless of its suffix,
@@ -140,22 +143,23 @@ do
 done
 
 if [ "$MOVED_OLD" = true ]; then
-    ui_print "- Moved old standalone launcher outside service.d"
+    msg install.moved_legacy
 fi
 
 set_perm_recursive "$MODPATH" 0 0 0755 0644
 set_perm "$MODPATH/bin/tailscale" 0 0 0755
 set_perm "$MODPATH/bin/tailscaled" 0 0 0755
 set_perm "$MODPATH/common.sh" 0 0 0755
+set_perm "$MODPATH/i18n.sh" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755
 set_perm "$MODPATH/action.sh" 0 0 0755
 set_perm "$MODPATH/webui.sh" 0 0 0755
 set_perm "$MODPATH/uninstall.sh" 0 0 0755
 set_perm "$MODPATH/binary-sha256" 0 0 0600
 
-ui_print "- Your state remains at /data/adb/tailscale-native"
-ui_print "- Keep the official Tailscale app disconnected"
-ui_print "- Reboot after installation"
-ui_print "- Install KsuWebUIStandalone if needed"
-ui_print "- After reboot, tap Action to open the dashboard and sign in there"
-ui_print "- Use Update Tailscale in the dashboard for manual binary updates"
+msg install.state_path
+msg install.keep_official_off
+msg install.reboot
+msg install.install_webui
+msg install.action_hint
+msg install.update_hint

@@ -11,6 +11,11 @@ on:
 permissions:
   contents: write
 
+env:
+  RELEASE_TAG: v0.5.0-zh
+  RELEASE_TITLE: Native Tailscale TUN v0.5.0-zh
+  RELEASE_ZIP: native-tailscale-magisk-bootstrap-v0.5.0-zh.zip
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -19,25 +24,30 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify release asset
-        run: sha256sum --check SHA256SUMS
+        run: |
+          set -eu
+          test -f "release/$RELEASE_ZIP"
+          grep -F "release/$RELEASE_ZIP" SHA256SUMS
+          sha256sum --check --ignore-missing SHA256SUMS
 
-      - name: Publish v0.4.6-bootstrap
+      - name: Publish v0.5.0-zh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v0.4.6-bootstrap >/dev/null 2>&1; then
-            gh release edit v0.4.6-bootstrap \
-              --title "Native Tailscale TUN v0.4.6-bootstrap" \
+          set -eu
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "$RELEASE_TITLE" \
               --notes-file RELEASE_NOTES.md
-            gh release upload v0.4.6-bootstrap \
-              release/native-tailscale-magisk-bootstrap-v0.4.6.zip \
+            gh release upload "$RELEASE_TAG" \
+              "release/$RELEASE_ZIP" \
               SHA256SUMS \
               --clobber
             exit 0
           fi
 
-          gh release create v0.4.6-bootstrap \
-            release/native-tailscale-magisk-bootstrap-v0.4.6.zip \
+          gh release create "$RELEASE_TAG" \
+            "release/$RELEASE_ZIP" \
             SHA256SUMS \
-            --title "Native Tailscale TUN v0.4.6-bootstrap" \
+            --title "$RELEASE_TITLE" \
             --notes-file RELEASE_NOTES.md

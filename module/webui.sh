@@ -2,6 +2,7 @@
 
 MODDIR=${0%/*}
 . "$MODDIR/common.sh"
+. "$MODDIR/i18n.sh"
 
 TAILSCALE="$MODDIR/bin/tailscale"
 LOGIN_LOG="$BASE/webui-login.log"
@@ -59,6 +60,7 @@ status_command() {
     official_tailscale_vpn_active && OFFICIAL_VPN=true
 
     field backend_state "$BACKEND_STATE"
+    field ui_language "$(i18n_lang)"
     field running "$RUNNING"
     field pid "$PID"
     field ipv4 "$IPV4"
@@ -81,7 +83,7 @@ status_command() {
 
 require_running() {
     pid_is_ours || {
-        echo "ERROR: Native tailscaled is not running."
+        msg error.not_running
         exit 1
     }
 }
@@ -91,7 +93,7 @@ set_boolean() {
     VALUE="$2"
     case "$VALUE" in
         true|false) ;;
-        *) echo "ERROR: Invalid setting value."; exit 2 ;;
+        *) msg error.setting_value; exit 2 ;;
     esac
     require_running
     "$TAILSCALE" --socket="$SOCKET" set "--$FLAG=$VALUE"
@@ -104,7 +106,7 @@ print_login_url() {
     esac
 
     printf 'login_url=%s\n' "$1"
-    echo "Complete authentication in the sign-in page, then return to the dashboard."
+    msg login.complete_hint
 }
 
 print_live_login_result() {
@@ -117,7 +119,7 @@ print_live_login_result() {
     fi
 
     if [ "$LOGIN_STATE" = Running ]; then
-        echo "This device is already signed in."
+        msg login.already_signed_in
         return 0
     fi
 
@@ -150,7 +152,7 @@ print_login_result() {
     else
         cat "$LOGIN_LOG" 2>/dev/null
         if login_process_is_ours; then
-            echo "The sign-in URL is not ready yet. Tap Sign in again in a few seconds."
+            msg login.url_pending
         fi
     fi
 }
@@ -164,46 +166,44 @@ case "$1" in
         status_command
         ;;
     logs)
-        tail -n 120 "$LOGFILE" 2>/dev/null || echo "No log entries yet."
+        tail -n 120 "$LOGFILE" 2>/dev/null || msg logs.empty
         ;;
     clear-logs)
         : > "$LOGFILE"
-        echo "Daemon log cleared."
+        msg logs.cleared
         ;;
     diagnostics)
         status_command
         echo
-        echo "Android DNS note"
-        echo "The native Android build cannot read or replace Android's base DNS"
-        echo "configuration through Tailscale's OS DNS configurator. This module keeps"
-        echo "accept-dns disabled because it cannot provide system-wide MagicDNS. If an"
-        echo "older or manual configuration enabled it, the low-severity 'getting OS"
-        echo "base config is not supported' warning does not mean TUN or tailnet IP"
-        echo "routing failed. The native daemon continues using Android's existing DNS."
+        msg diag.dns_title
+        msg diag.dns_body_1
+        msg diag.dns_body_2
+        msg diag.dns_body_3
+        msg diag.dns_body_4
         echo
-        echo "Raw Tailscale status"
+        msg diag.raw_status
         "$TAILSCALE" --socket="$SOCKET" status 2>&1 || true
         echo
         ip addr show tailscale0 2>&1 || true
         ;;
     start)
         if official_tailscale_vpn_active; then
-            echo "ERROR: Disconnect the official Tailscale Android app first."
+            msg error.official_vpn
             exit 1
         fi
-        start_daemon && echo "Native tailscaled started."
+        start_daemon && msg daemon.started
         ;;
     stop)
         stop_daemon
-        echo "Native tailscaled stopped."
+        msg daemon.stopped
         ;;
     restart)
         if official_tailscale_vpn_active; then
-            echo "ERROR: Disconnect the official Tailscale Android app first."
+            msg error.official_vpn
             exit 1
         fi
         stop_daemon
-        start_daemon && echo "Native tailscaled restarted."
+        start_daemon && msg daemon.restarted
         ;;
     login)
         require_running
@@ -234,10 +234,10 @@ case "$1" in
     verify)
         if verify_binary_hashes; then
             printf '%s\n' verified > "$BASE/last-integrity-status"
-            echo "Installed binaries match their recorded SHA-256 hashes."
+            msg verify.ok
         else
             printf '%s\n' modified > "$BASE/last-integrity-status"
-            echo "ERROR: An installed binary does not match its recorded SHA-256 hash."
+            msg verify.failed
             exit 1
         fi
         ;;
@@ -249,10 +249,18 @@ case "$1" in
         if am start -a android.intent.action.VIEW -d "$ADMIN_URL" \
             >/dev/null 2>&1
         then
-            echo "Opened the Tailscale Machines page in your browser."
+            msg admin.opened
         else
-            echo "ERROR: No browser could open the Tailscale admin console."
+            msg admin.failed
             exit 1
+        fi
+        ;;
+    set-language)
+        if i18n_set_lang "$2"; then
+            msg lang.saved
+        else
+            msg error.lang_invalid
+            exit 2
         fi
         ;;
     set)
@@ -262,23 +270,23 @@ case "$1" in
             hostname)
                 HOSTNAME_VALUE="$3"
                 [ "${#HOSTNAME_VALUE}" -le 63 ] || {
-                    echo "ERROR: Hostname must be 63 characters or fewer."
+                    msg error.hostname_length
                     exit 2
                 }
                 case "$HOSTNAME_VALUE" in
                     ""|*[!A-Za-z0-9.-]*|.*|-*|*..*|*.|*-)
-                        echo "ERROR: Use only letters, numbers, dots, and hyphens."
+                        msg error.hostname_chars
                         exit 2
                         ;;
                 esac
                 require_running
                 "$TAILSCALE" --socket="$SOCKET" set "--hostname=$HOSTNAME_VALUE"
                 ;;
-            *) echo "ERROR: Unknown setting."; exit 2 ;;
+            *) msg error.unknown_setting; exit 2 ;;
         esac
         ;;
     *)
-        echo "Usage: $0 {status|logs|clear-logs|diagnostics|start|stop|restart|login|verify|binary-update|open-admin|set}"
+        msg usage
         exit 2
         ;;
 esac

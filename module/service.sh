@@ -2,6 +2,7 @@
 
 MODDIR=${0%/*}
 . "$MODDIR/common.sh"
+. "$MODDIR/i18n.sh"
 
 # Move any older standalone launcher completely out of service.d.
 LEGACY_DIR=/data/adb/service.d-disabled
@@ -46,26 +47,24 @@ while [ ! -e /dev/tun ] && [ "$I" -lt 30 ]; do
 done
 
 if official_tailscale_vpn_active; then
-    echo "$(date): official Tailscale Android VPN is active; native daemon not started" \
-        >> "$LOGFILE"
+    echo "$(date): $(msg service.official_vpn_active)" >> "$LOGFILE"
     exit 0
 fi
 
 if ! start_daemon; then
-    echo "$(date): failed to start native tailscaled" >> "$LOGFILE"
+    echo "$(date): $(msg service.start_failed)" >> "$LOGFILE"
     exit 1
 fi
 
-echo "$(date): native tailscaled started" >> "$LOGFILE"
+echo "$(date): $(msg service.started)" >> "$LOGFILE"
 
 if ensure_device_hostname; then
-    echo "$(date): device hostname preference checked" >> "$LOGFILE"
+    echo "$(date): $(msg service.hostname_checked)" >> "$LOGFILE"
 fi
 
 STATUS_JSON="$("$MODDIR/bin/tailscale" --socket="$SOCKET" status --json 2>/dev/null)"
 if printf '%s\n' "$STATUS_JSON" |
     grep -Eq '"BackendState"[[:space:]]*:[[:space:]]*"(NeedsLogin|NoState)"'
 then
-    echo "$(date): authentication required; sign in from the Native Tailscale dashboard" \
-        >> "$LOGFILE"
+    echo "$(date): $(msg service.auth_required)" >> "$LOGFILE"
 fi

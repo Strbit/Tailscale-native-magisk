@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="dark">
-  <title>Native Tailscale</title>
+  <title data-i18n="app.title">Native Tailscale</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -13,16 +13,17 @@
       <div class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 48 48"><circle cx="12" cy="12" r="4"/><circle cx="24" cy="12" r="4"/><circle cx="36" cy="12" r="4"/><circle cx="12" cy="24" r="4"/><circle cx="24" cy="24" r="4"/><circle cx="36" cy="24" r="4"/><circle cx="12" cy="36" r="4"/><circle cx="24" cy="36" r="4"/><circle cx="36" cy="36" r="4"/></svg>
       </div>
-      <div class="grow"><p class="eyebrow">MAGISK // KSUWEBUI</p><h1>Native Tailscale</h1></div>
-      <span class="header-chip">NATIVE BINARY</span>
-      <button class="icon-button" id="refresh" aria-label="Refresh status">
+      <div class="grow"><p class="eyebrow" data-i18n="app.eyebrow">MAGISK // KSUWEBUI</p><h1 data-i18n="app.title">Native Tailscale</h1></div>
+      <span class="header-chip" data-i18n="app.chip">NATIVE BINARY</span>
+      <button id="langToggle" aria-label="Switch language" data-i18n-aria="header.language" title="Switch language" data-i18n-title="header.language">中文</button>
+      <button class="icon-button" id="refresh" aria-label="Refresh status" data-i18n-aria="header.refresh" title="Refresh status" data-i18n-title="header.refresh">
         <svg viewBox="0 0 24 24"><path d="M20 11a8.1 8.1 0 0 0-14.9-4M4 4v5h5M4 13a8.1 8.1 0 0 0 14.9 4M20 20v-5h-5"/></svg>
       </button>
     </header>
 
     <section class="connection-card card">
       <div class="status-orb" id="statusOrb"><span></span></div>
-      <div class="grow"><p class="label">NETWORK STATUS</p><h2 id="backendState">Loading…</h2><p class="muted ip-display" id="ipAddress">Checking the native daemon</p></div>
+      <div class="grow"><p class="label" data-i18n="status.network">NETWORK STATUS</p><h2 id="backendState" data-i18n="status.loading">Loading…</h2><p class="muted ip-display" id="ipAddress" data-i18n="status.checking_daemon">Checking the native daemon</p></div>
       <span class="pill" id="interfaceState">—</span>
     </section>
 
@@ -31,55 +32,56 @@
     <section class="card">
       <div class="section-title">
         <span class="section-icon shield"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.7 2.8 8.2 7 10 4.2-1.8 7-5.3 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg></span>
-        <div class="grow"><h3>System integrity</h3><p>Installed binary verification</p></div>
-        <span class="integrity" id="integrityState">Checking</span>
+        <div class="grow"><h3 data-i18n="integrity.title">System integrity</h3><p data-i18n="integrity.subtitle">Installed binary verification</p></div>
+        <span class="integrity" id="integrityState" data-i18n="integrity.checking">Checking</span>
       </div>
       <div class="detail-grid">
-        <div><span>Upstream source revision</span><code id="commit">—</code></div>
-        <div><span>Tailscale version</span><strong id="tailscaleVersion">—</strong></div>
-        <div><span>Module version</span><strong id="moduleVersion">—</strong></div>
-        <div><span>Daemon PID</span><strong id="pid">—</strong></div>
+        <div><span data-i18n="integrity.commit">Upstream source revision</span><code id="commit">—</code></div>
+        <div><span data-i18n="integrity.version">Tailscale version</span><strong id="tailscaleVersion">—</strong></div>
+        <div><span data-i18n="integrity.module_version">Module version</span><strong id="moduleVersion">—</strong></div>
+        <div><span data-i18n="integrity.pid">Daemon PID</span><strong id="pid">—</strong></div>
       </div>
       <div class="button-row">
-        <button class="secondary" data-action="verify"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.7 2.8 8.2 7 10 4.2-1.8 7-5.3 7-10V6l-7-3Z"/></svg>Verify binaries</button>
-        <button class="primary" data-action="binary-update"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>Update Tailscale</button>
+        <button class="secondary" data-action="verify"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.7 2.8 8.2 7 10 4.2-1.8 7-5.3 7-10V6l-7-3Z"/></svg><span data-i18n="integrity.verify">Verify binaries</span></button>
+        <button class="primary" data-action="binary-update"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg><span data-i18n="integrity.update">Update Tailscale</span></button>
       </div>
     </section>
 
     <section class="card">
       <div class="section-title">
         <span class="section-icon network"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><path d="M12 7v4M5 16v-3h14v3"/></svg></span>
-        <div><h3>Configuration flags</h3><p>Applied safely through <code>tailscale set</code></p></div>
+        <div><h3 data-i18n="config.title">Configuration flags</h3><p data-i18n-html="config.subtitle">Applied safely through <code>tailscale set</code></p></div>
       </div>
-      <label class="setting"><span><strong>Accept subnet routes</strong><small>Use routes advertised by other nodes</small></span><input type="checkbox" data-setting="accept-routes"></label>
-      <label class="setting"><span><strong>Shields up</strong><small>Block incoming tailnet connections</small></span><input type="checkbox" data-setting="shields-up"></label>
-      <div class="hostname-row"><label for="hostname"><strong>Device hostname</strong><small>Letters, numbers, dots, and hyphens</small></label><div><input id="hostname" maxlength="63" placeholder="my-phone"><button id="saveHostname">Save</button></div></div>
+      <label class="setting"><span><strong data-i18n="config.accept_routes">Accept subnet routes</strong><small data-i18n="config.accept_routes_hint">Use routes advertised by other nodes</small></span><input type="checkbox" data-setting="accept-routes"></label>
+      <label class="setting"><span><strong data-i18n="config.shields_up">Shields up</strong><small data-i18n="config.shields_up_hint">Block incoming tailnet connections</small></span><input type="checkbox" data-setting="shields-up"></label>
+      <div class="hostname-row"><label for="hostname"><strong data-i18n="config.hostname">Device hostname</strong><small data-i18n="config.hostname_hint">Letters, numbers, dots, and hyphens</small></label><div><input id="hostname" maxlength="63" placeholder="my-phone" data-i18n-placeholder="config.hostname_placeholder"><button id="saveHostname" data-i18n="config.save">Save</button></div></div>
     </section>
 
     <section class="card">
       <div class="section-title">
         <span class="section-icon service"><svg viewBox="0 0 24 24"><path d="M12 2v10M5.6 5.6a9 9 0 1 0 12.8 0"/></svg></span>
-        <div><h3>Daemon controls</h3><p>Manage the root-native service</p></div>
+        <div><h3 data-i18n="daemon.title">Daemon controls</h3><p data-i18n="daemon.subtitle">Manage the root-native service</p></div>
       </div>
       <div class="control-grid">
-        <button data-action="start"><svg viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"/></svg>Start</button>
-        <button data-action="restart"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg>Restart</button>
-        <button data-action="stop"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>Stop</button>
-        <button data-action="login" id="loginButton"><svg viewBox="0 0 24 24"><path id="loginButtonIcon" d="M10 17 15 12 10 7M15 12H3M14 4h6v16h-6"/></svg><span id="loginButtonLabel">Sign in</span></button>
-        <button data-action="open-admin"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>Tailnet admin</button>
+        <button data-action="start"><svg viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"/></svg><span data-i18n="action.start">Start</span></button>
+        <button data-action="restart"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg><span data-i18n="action.restart">Restart</span></button>
+        <button data-action="stop"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></svg><span data-i18n="action.stop">Stop</span></button>
+        <button data-action="login" id="loginButton"><svg viewBox="0 0 24 24"><path id="loginButtonIcon" d="M10 17 15 12 10 7M15 12H3M14 4h6v16h-6"/></svg><span id="loginButtonLabel" data-i18n="action.sign_in">Sign in</span></button>
+        <button data-action="open-admin"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg><span data-i18n="action.tailnet_admin">Tailnet admin</span></button>
       </div>
     </section>
 
     <details class="card logs-card">
-      <summary><span class="section-icon terminal"><svg viewBox="0 0 24 24"><path d="m5 7 4 5-4 5M11 17h8"/></svg></span><span class="grow"><strong>Logs and diagnostics</strong><small>Historical activity—not current login state</small></span><svg class="chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></svg></summary>
-      <pre id="logs">Open this section to load logs.</pre>
-      <div class="button-row"><button class="secondary" id="loadLogs">Refresh logs</button><button class="secondary" data-action="clear-logs">Clear log</button><button class="secondary" data-action="diagnostics">Run diagnostics</button></div>
+      <summary><span class="section-icon terminal"><svg viewBox="0 0 24 24"><path d="m5 7 4 5-4 5M11 17h8"/></svg></span><span class="grow"><strong data-i18n="action.logs_title">Logs and diagnostics</strong><small data-i18n="action.logs_hint">Historical activity—not current login state</small></span><svg class="chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></svg></summary>
+      <pre id="logs" data-i18n="logs.open_hint">Open this section to load logs.</pre>
+      <div class="button-row"><button class="secondary" id="loadLogs" data-i18n="action.refresh_logs">Refresh logs</button><button class="secondary" data-action="clear-logs" data-i18n="action.clear_log">Clear log</button><button class="secondary" data-action="diagnostics" data-i18n="action.run_diagnostics">Run diagnostics</button></div>
     </details>
 
-    <footer><span class="dot"></span> SYSTEM LOCAL // MAGISK + KSUWEBUISTANDALONE</footer>
+    <footer><span class="dot"></span><span data-i18n="footer.system">SYSTEM LOCAL // MAGISK + KSUWEBUISTANDALONE</span></footer>
   </main>
-  <div class="busy hidden" id="busy"><div class="spinner"></div><p id="busyText">Working…</p></div>
-  <dialog id="outputDialog"><div class="dialog-head"><h3 id="dialogTitle">Result</h3><button id="closeDialog" aria-label="Close result">×</button></div><pre id="dialogOutput"></pre><a class="login-link hidden" id="loginLink">Open Tailscale sign-in</a><div class="login-url-box hidden" id="loginUrlBox"><span>Authentication URL — tap and hold to copy</span><code id="loginUrlText"></code></div></dialog>
+  <div class="busy hidden" id="busy"><div class="spinner"></div><p id="busyText" data-i18n="busy.working">Working…</p></div>
+  <dialog id="outputDialog"><div class="dialog-head"><h3 id="dialogTitle" data-i18n="dialog.result">Result</h3><button id="closeDialog" aria-label="Close result" data-i18n-aria="dialog.close" title="Close result" data-i18n-title="dialog.close">×</button></div><pre id="dialogOutput"></pre><a class="login-link hidden" id="loginLink" data-i18n="dialog.open_login">Open Tailscale sign-in</a><div class="login-url-box hidden" id="loginUrlBox"><span data-i18n="dialog.auth_url">Authentication URL — tap and hold to copy</span><code id="loginUrlText"></code></div></dialog>
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

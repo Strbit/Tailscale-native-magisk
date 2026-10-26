@@ -1,3 +1,5 @@
+[English](README.md) · [简体中文](README.zh-CN.md)
+
 # Native Tailscale TUN for Magisk
 
 **Created with the help of OpenAI**
@@ -13,6 +15,40 @@ another VPN.
 > endorsed by Tailscale Inc., android-kxxt, Magisk, or OpenAI. Root networking
 > changes can interrupt connectivity; keep a recovery path and a current
 > backup.
+
+## Fork and Chinese localization
+
+This repository is a fork of
+[`Iridule/Tailscale-native-magisk`](https://github.com/Iridule/Tailscale-native-magisk)
+and is maintained at
+[`Strbit/Tailscale-native-magisk`](https://github.com/Strbit/Tailscale-native-magisk).
+Module code, scripts, and the security model are unchanged in behaviour; the
+fork adds a full Simplified Chinese (`zh-CN`) localization on top of them.
+
+What this fork adds:
+
+- a bilingual offline dashboard with an in-page language switch; the choice is
+  stored in `/data/adb/tailscale-native/ui-language` and shared with the shell
+  layer;
+- localized output from the module's own shell scripts, including the Magisk
+  installer (installer messages keep an English gloss in parentheses so they
+  stay readable in recovery);
+- `tools/check-i18n.js`, a consistency checker for dictionary keys, `%s`
+  placeholders, encoding, module metadata, and the release archive; and
+- `0.5.0-zh` versioning, a fork-owned `update.json`, and LF line endings on
+  every text file.
+
+English remains the default fallback. A device whose system language starts
+with `zh` selects `zh-CN` automatically, and the dashboard can switch at any
+time. See [README.zh-CN.md](README.zh-CN.md) for the Chinese documentation.
+
+To sync this fork with upstream:
+
+```sh
+git remote add upstream https://github.com/Iridule/Tailscale-native-magisk.git
+git fetch upstream
+git merge upstream/main
+```
 
 ## Requirements
 
@@ -34,7 +70,7 @@ Tailscale build on a later date.
 
 ## Install
 
-1. Download `native-tailscale-magisk-bootstrap-v0.4.6.zip` from
+1. Download `native-tailscale-magisk-bootstrap-v0.5.0-zh.zip` from
    [Releases](../../releases).
 2. Disconnect the official Android Tailscale app.
 3. Open **Magisk → Modules → Install from storage** and select the ZIP.
@@ -57,6 +93,11 @@ the module's bundled dashboard. It works offline and provides:
 - historical daemon logs with refresh/clear controls and live diagnostics; and
 - a local cyber-terminal theme with high-contrast status indicators and no
   externally loaded fonts or assets.
+
+The dashboard is available in English and Simplified Chinese. Use the language
+control in its header to switch; the setting is persisted and applied to the
+module's shell output as well. Raw `tailscale`/`tailscaled` output is always
+shown as the daemon emits it.
 
 The native Android build cannot read or replace Android's base DNS through
 Tailscale's normal OS configurator, so the module keeps `accept-dns` disabled
@@ -168,6 +209,10 @@ recreating its socket.
 
 This checksum verifies the bootstrap ZIP only. It does not verify the
 Tailscale binaries downloaded later during installation or an update.
+
+The checksum for the current `v0.5.0-zh` archive is published in
+[SHA256SUMS](SHA256SUMS) and attached to the GitHub release. The previous
+`v0.4.6-bootstrap` archive had this value:
 
 ```text
 82e53e0326c30c4efec6b629b30abc2cfeafdf99fd71108b205020ab7a1efe1e  native-tailscale-magisk-bootstrap-v0.4.6.zip
