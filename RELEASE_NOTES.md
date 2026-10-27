@@ -1,80 +1,78 @@
-# Native Tailscale TUN v0.5.0-zh
+# Native Tailscale TUN v0.5.1-zh
 
-This release adds a complete Simplified Chinese localization to the module and
-publishes it from the `Strbit` fork. Module behaviour, scripts, and the
-security model are unchanged from `0.4.6-bootstrap`.
+This release fixes a daemon lifecycle bug that affected KernelSU and Magisk
+manager apps. Module behaviour and the security model are otherwise unchanged
+from `0.5.0-zh`.
 
 ## 中文
 
-本次发布为模块加入完整的简体中文本地化，并由 `Strbit` fork 发布。模块行为、
-脚本与安全模型与 `0.4.6-bootstrap` 保持一致。
+本次发布修复了一个守护进程生命周期缺陷，该缺陷会影响 KernelSU 与 Magisk 管理器
+应用。除此之外，模块行为与安全模型与 `0.5.0-zh` 保持一致。
 
-### 新增
+### 修复
 
-- 离线双语仪表盘（英文 / 简体中文），页头语言切换按钮即时生效，无需刷新页面。
-- 语言设置持久化到 `/data/adb/tailscale-native/ui-language`，Web 层与 shell 层
-  共用同一事实源；未设置时按系统语言判定，默认回退英文。
-- 模块自身脚本输出（含 Magisk 安装器）全部本地化；安装器每条中文提示附带英文
-  括注，recovery 环境缺中文字体时仍可读。
-- 新增 `tools/check-i18n.js` 校验工具，覆盖词典键与占位符对齐、HTML/JS 键引用、
-  shell 字典与 `%s` 一致性、模块元数据与发布包结构。
+- **守护进程不再随管理器被划掉而退出**。此前从管理器「操作」按钮启动
+  `tailscaled` 时，它会加入管理器应用的进程组；划掉管理器后整个进程组被清理，
+  `tailscaled` 随之被终止，并留下幽灵进程。现在启动时使用 `setsid` 让守护进程
+  进入独立会话，不再依附调用它的应用进程。
+- **开机启动路径本就不受影响**。由 `service.sh` 在开机时启动的守护进程以 `init`
+  为父进程，与管理器应用无关；本次修复针对的是手动「操作」启动的场景。
+- **修复残留 `tailscale0` 导致无法再次启动**。守护进程被强杀后可能留下
+  `tailscale0` 接口，旧逻辑会因此拒绝启动。现在检测到残留接口时先执行
+  `tailscaled --cleanup` 清理，再正常启动。
+- **PID 记录更准确**。`setsid` 可能 fork，因此启动成功后改用实际守护进程 PID
+  写入 pidfile，而不是 shell 的 `$!`。
 
-### 修复与变更
+### 版本
 
-- 所有文本文件统一为 LF 且无 BOM，修复 Android shell 因 CRLF 无法执行的问题。
-- 版本号改为 `0.5.0-zh`（versionCode `500`）；`update.json`、`module.prop` 的
-  `updateJson` 与发布资产链接均指向 `Strbit/Tailscale-native-magisk`。
-- 语言设置不会改动任何逻辑判断：`BackendState`、`integrity`、`interface` 等字段
-  仍以英文原值参与比较，仅在显示层翻译。
-- `tailscale` / `tailscaled` 的原始输出保持原文，不做翻译。
+- 版本号 `0.5.1-zh`（versionCode `501`）。
+- 已安装 `0.5.0-zh` 的设备可直接覆盖安装；`/data/adb/tailscale-native` 中的登录
+  身份会被保留。
 
 ## English
 
-### Added
+This release fixes a daemon lifecycle bug affecting KernelSU and Magisk manager
+apps. Module behaviour and the security model are unchanged from `0.5.0-zh`.
 
-- An offline bilingual dashboard (English / Simplified Chinese) with a header
-  language switch that applies immediately, without a page reload.
-- A persisted language setting in
-  `/data/adb/tailscale-native/ui-language`, shared by the web and shell layers.
-  Without a stored value it follows the system language and falls back to
-  English.
-- Full localization of the module's own script output, including the Magisk
-  installer. Each Chinese installer message keeps an English gloss in
-  parentheses so it stays readable when recovery lacks Chinese fonts.
-- `tools/check-i18n.js`, a consistency checker for dictionary keys and
-  placeholders, referenced HTML/JS keys, shell dictionary and `%s` alignment,
-  module metadata, and release archive structure.
+### Fixed
 
-### Fixed and changed
+- **The daemon no longer dies when the manager app is swiped away.** Starting
+  `tailscaled` from the manager's Action button previously placed it in the
+  manager app's process group, so closing the manager killed the daemon and
+  left a ghost process. The daemon now starts under `setsid` in its own
+  session and no longer depends on the calling app.
+- **The boot path was never affected.** A daemon started by `service.sh` at
+  boot is parented by `init` and unrelated to the manager app; this fix targets
+  the manual Action-button start.
+- **A stale `tailscale0` interface no longer blocks restarts.** A killed daemon
+  could leave `tailscale0` behind, which made the old logic refuse to start.
+  The stale interface is now cleaned with `tailscaled --cleanup` first.
+- **More accurate PID tracking.** `setsid` may fork, so the real daemon PID is
+  recorded after startup instead of the shell's `$!`.
 
-- All text files are LF and BOM-free, fixing Android shell scripts that could
-  fail to execute with CRLF line endings.
-- Version is now `0.5.0-zh` (versionCode `500`); `update.json`, the
-  `updateJson` entry in `module.prop`, and release asset URLs point at
-  `Strbit/Tailscale-native-magisk`.
-- Localization never changes logic: `BackendState`, `integrity`, and
-  `interface` values are still compared in their original English form and
-  translated only for display.
-- Raw `tailscale` / `tailscaled` output is passed through untranslated.
+### Version
+
+- Version `0.5.1-zh` (versionCode `501`).
+- Devices running `0.5.0-zh` can install this over the top; the authenticated
+  identity under `/data/adb/tailscale-native` is preserved.
 
 ## Validation
 
-- `node tools/check-i18n.js` reports zero errors for the documentation,
-  metadata, shell, and web areas.
-- Dictionary keys and `%s` placeholders match between `en` and `zh-CN`.
-- Shell syntax, JavaScript syntax, mobile WebUI regression, archive comparison,
-  and release checksum checks pass.
+- `node tools/check-i18n.js` reports zero errors across all areas.
+- Shell syntax checks pass for every module script.
+- `en` and `zh-CN` dictionaries and `%s` placeholders remain aligned.
 
 ## 验证
 
-- `node tools/check-i18n.js` 在文档、元数据、shell 与 Web 领域均无 error。
-- `en` 与 `zh-CN` 的词典键及 `%s` 占位符完全对齐。
-- shell 语法、JavaScript 语法、移动端 WebUI 回归、归档比对与发布校验和均通过。
+- `node tools/check-i18n.js` 全部领域无 error。
+- 所有模块脚本通过 shell 语法检查。
+- `en` 与 `zh-CN` 词典及 `%s` 占位符保持对齐。
 
 ## Important
 
 - ARM64 only.
-- Reboot after installing so Magisk activates every updated module script.
+- Reboot after installing so the kernel manager activates every updated module
+  script.
 - Disconnect the official Android Tailscale app before using the native daemon.
 - Existing identity under `/data/adb/tailscale-native` remains preserved.
 - Installing this fork replaces the upstream module of the same module ID
@@ -83,7 +81,7 @@ security model are unchanged from `0.4.6-bootstrap`.
 ## 重要说明
 
 - 仅支持 ARM64。
-- 安装后请重启，以便 Magisk 激活全部更新后的模块脚本。
+- 安装后请重启，以便内核管理器激活全部更新后的模块脚本。
 - 使用原生守护进程前，请先断开官方 Android Tailscale 应用。
 - `/data/adb/tailscale-native` 中已有的身份会被保留。
 - 本 fork 与上游模块 ID 相同（`native_tailscale`），安装本 fork 会替换上游模块；

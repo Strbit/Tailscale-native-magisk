@@ -138,10 +138,25 @@ start_daemon() {
         return 0
     fi
 
-    if pidof tailscaled >/dev/null 2>&1 || ip link show tailscale0 >/dev/null 2>&1; then
-        echo "$(date): refusing to start: another tailscaled or tailscale0 already exists" \
+    if pidof tailscaled >/dev/null 2>&1; then
+        echo "$(date): refusing to start: another tailscaled already exists" \
             >> "$LOGFILE"
         return 1
+    fi
+
+    # A daemon killed while running (for example when the KernelSU or Magisk
+    # manager app was swiped away) can leave tailscale0 behind. Clear the stale
+    # interface instead of refusing to start on every later attempt.
+    if ip link show tailscale0 >/dev/null 2>&1; then
+        echo "$(date): cleaning up stale tailscale0 interface" >> "$LOGFILE"
+        "$MODDIR/bin/tailscaled" \
+            --cleanup \
+            --state="$STATE" \
+            --statedir="$BASE" \
+            --socket="$SOCKET" \
+            --tun=tailscale0 \
+            >>"$LOGFILE" 2>&1 || true
+        rm -f "$PIDFILE" "$SOCKET"
     fi
 
     stop_pending_login
@@ -149,13 +164,28 @@ start_daemon() {
     [ -x "$MODDIR/bin/tailscaled" ] || return 1
     rm -f "$PIDFILE" "$SOCKET"
 
-    "$MODDIR/bin/tailscaled" \
-        --state="$STATE" \
-        --statedir="$BASE" \
-        --socket="$SOCKET" \
-        --tun=tailscale0 \
-        --verbose=1 \
-        >>"$LOGFILE" 2>&1 &
+    # Detach into a fresh session. When the daemon is started from the manager
+    # app's Action button it would otherwise join that app's process group, and
+    # closing the app would take the daemon down with it. setsid gives the
+    # daemon its own session so it survives the manager going away. Booting via
+    # service.sh is already init-parented and unaffected either way.
+    if command -v setsid >/dev/null 2>&1; then
+        setsid "$MODDIR/bin/tailscaled" \
+            --state="$STATE" \
+            --statedir="$BASE" \
+            --socket="$SOCKET" \
+            --tun=tailscale0 \
+            --verbose=1 \
+            >>"$LOGFILE" 2>&1 &
+    else
+        "$MODDIR/bin/tailscaled" \
+            --state="$STATE" \
+            --statedir="$BASE" \
+            --socket="$SOCKET" \
+            --tun=tailscale0 \
+            --verbose=1 \
+            >>"$LOGFILE" 2>&1 &
+    fi
 
     PID=$!
     echo "$PID" > "$PIDFILE"
@@ -163,6 +193,9 @@ start_daemon() {
     I=0
     while [ "$I" -lt 20 ]; do
         if [ -S "$SOCKET" ] && pid_is_ours; then
+            # setsid may fork, so record the real daemon pid rather than $!.
+            REAL_PID="$(managed_daemon_pid)"
+            [ -n "$REAL_PID" ] && echo "$REAL_PID" > "$PIDFILE"
             if ! disable_unsupported_android_dns; then
                 echo "$(date): could not disable unsupported native Android DNS preference" \
                     >> "$LOGFILE"

@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.5.1-zh — 2026-10-27
+
+Daemon lifecycle fix for KernelSU and Magisk manager apps.
+
+### 中文
+
+- **修复守护进程随管理器被划掉而退出**：此前从管理器「操作」按钮启动
+  `tailscaled` 时，它会加入管理器应用的进程组；划掉管理器后整个进程组被清理，
+  `tailscaled` 被终止并留下幽灵进程。现在启动时用 `setsid` 让守护进程进入独立
+  会话，不再依附于调用它的应用进程。开机时由 `service.sh` 启动的路径本就以 init
+  为父进程，不受影响。
+- **修复残留 `tailscale0` 导致无法再次启动**：守护进程被强杀后可能留下
+  `tailscale0` 接口，旧逻辑会因此拒绝启动。现在检测到残留接口时先执行
+  `tailscaled --cleanup` 清理，再正常启动。
+- **PID 记录更准确**：`setsid` 可能 fork，因此启动成功后改用实际守护进程的 PID
+  写入 pidfile，而不是 shell 的 `$!`。
+
+### English
+
+- **Fix daemon dying with the manager app**: starting `tailscaled` from the
+  manager's Action button previously placed it in the manager app's process
+  group, so swiping the manager away killed the daemon and left a ghost
+  process. The daemon now starts under `setsid` in its own session and no
+  longer depends on the calling app. The boot path via `service.sh` is
+  init-parented and was never affected.
+- **Fix stale `tailscale0` blocking restarts**: a killed daemon could leave the
+  `tailscale0` interface behind, which made the old logic refuse to start. The
+  stale interface is now cleaned with `tailscaled --cleanup` before starting.
+- **More accurate PID tracking**: `setsid` may fork, so the real daemon PID is
+  recorded after startup instead of the shell's `$!`.
+
 ## 0.5.0-zh — 2026-10-26
 
 Chinese localization release. The module, its scripts, and its security model
