@@ -20,6 +20,14 @@ download_installer_file() {
 
     rm -f "$OUT"
 
+    # Prefer the system curl. Android ships /system/bin/curl on recent releases
+    # and some devices have no wget at all, which made installation always fall
+    # back to reusing existing binaries.
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --connect-timeout 20 --max-time 180 \
+            -o "$OUT" "$URL" && [ -s "$OUT" ] && return 0
+    fi
+
     if command -v wget >/dev/null 2>&1; then
         wget -q -T 45 -O "$OUT" "$URL" && [ -s "$OUT" ] && return 0
     fi

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.2-zh — 2026-10-27
+
+Fix binary download on devices without `wget`.
+
+### 中文
+
+- **修复更新程序无法下载**：`download_file` 此前只尝试 `wget` 和写死的
+  Termux `curl` 路径。许多设备（含 KernelSU 环境）没有 `wget`，也没有装
+  Termux，导致「更新 Tailscale」始终报「无法下载上游提交标记」，安装时也会
+  退回到复用旧二进制。现在优先使用系统自带的 `/system/bin/curl`（Android 已
+  内置），再回退到 `wget` 与 Termux `curl`。
+- `customize.sh` 的安装期下载函数同步修复，安装时可直接拉取最新二进制。
+
+### English
+
+- **Fix the updater failing to download**: `download_file` only tried `wget`
+  and a hardcoded Termux `curl` path. Many devices (including KernelSU setups)
+  ship no `wget` and have no Termux, so "Update Tailscale" always reported
+  "Could not download the upstream commit marker", and installation fell back to
+  reusing existing binaries. The system `/system/bin/curl` (bundled with modern
+  Android) is now tried first, with `wget` and Termux `curl` as fallbacks.
+- The installer's download helper in `customize.sh` is fixed the same way.
+
 ## 0.5.1-zh — 2026-10-27
 
 Daemon lifecycle fix for KernelSU and Magisk manager apps.

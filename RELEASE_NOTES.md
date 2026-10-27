@@ -1,72 +1,82 @@
-# Native Tailscale TUN v0.5.1-zh
+# Native Tailscale TUN v0.5.2-zh
 
-This release fixes a daemon lifecycle bug that affected KernelSU and Magisk
-manager apps. Module behaviour and the security model are otherwise unchanged
-from `0.5.0-zh`.
+This release fixes binary downloads on devices that have no `wget`, which made
+both the in-dashboard updater and the installer fail. It also includes the
+daemon lifecycle fix from `0.5.1-zh`.
 
 ## 中文
 
-本次发布修复了一个守护进程生命周期缺陷，该缺陷会影响 KernelSU 与 Magisk 管理器
-应用。除此之外，模块行为与安全模型与 `0.5.0-zh` 保持一致。
+本次发布修复了没有 `wget` 的设备上二进制下载失败的问题——这会导致仪表盘的
+「更新 Tailscale」和安装过程都无法下载。同时包含 `0.5.1-zh` 的守护进程生命周期
+修复。
 
 ### 修复
 
-- **守护进程不再随管理器被划掉而退出**。此前从管理器「操作」按钮启动
-  `tailscaled` 时，它会加入管理器应用的进程组；划掉管理器后整个进程组被清理，
-  `tailscaled` 随之被终止，并留下幽灵进程。现在启动时使用 `setsid` 让守护进程
-  进入独立会话，不再依附调用它的应用进程。
-- **开机启动路径本就不受影响**。由 `service.sh` 在开机时启动的守护进程以 `init`
-  为父进程，与管理器应用无关；本次修复针对的是手动「操作」启动的场景。
-- **修复残留 `tailscale0` 导致无法再次启动**。守护进程被强杀后可能留下
-  `tailscale0` 接口，旧逻辑会因此拒绝启动。现在检测到残留接口时先执行
-  `tailscaled --cleanup` 清理，再正常启动。
-- **PID 记录更准确**。`setsid` 可能 fork，因此启动成功后改用实际守护进程 PID
-  写入 pidfile，而不是 shell 的 `$!`。
+- **更新程序无法下载**。此前 `download_file` 只尝试 `wget` 和写死的 Termux
+  `curl` 路径。许多设备（含 KernelSU 环境）既没有 `wget` 也未安装 Termux，
+  于是「更新 Tailscale」总是报「无法下载上游提交标记」，安装时也会退回复用旧
+  二进制。现在优先使用 Android 自带的 `/system/bin/curl`，再回退到 `wget` 与
+  Termux `curl`。
+- **安装期下载同步修复**。`customize.sh` 的下载函数一并修正，安装时可直接拉取
+  最新二进制，不再依赖设备上是否装了 `wget`。
+
+### 沿用 0.5.1-zh 的修复
+
+- **守护进程不再随管理器被划掉而退出**：从管理器「操作」按钮启动时，守护进程
+  现在通过 `setsid` 进入独立会话，不再依附管理器应用的进程组。
+- **残留 `tailscale0` 自动清理**：被强杀后不再因为接口残留而拒绝启动。
 
 ### 版本
 
-- 版本号 `0.5.1-zh`（versionCode `501`）。
-- 已安装 `0.5.0-zh` 的设备可直接覆盖安装；`/data/adb/tailscale-native` 中的登录
-  身份会被保留。
+- 版本号 `0.5.2-zh`（versionCode `502`）。
+- 可直接覆盖安装 `0.5.0-zh` / `0.5.1-zh`，登录身份保留在
+  `/data/adb/tailscale-native`。
 
 ## English
 
-This release fixes a daemon lifecycle bug affecting KernelSU and Magisk manager
-apps. Module behaviour and the security model are unchanged from `0.5.0-zh`.
+This release fixes binary downloads on devices without `wget`, which broke both
+the dashboard updater and installation. It also carries the daemon lifecycle fix
+from `0.5.1-zh`.
 
 ### Fixed
 
-- **The daemon no longer dies when the manager app is swiped away.** Starting
-  `tailscaled` from the manager's Action button previously placed it in the
-  manager app's process group, so closing the manager killed the daemon and
-  left a ghost process. The daemon now starts under `setsid` in its own
-  session and no longer depends on the calling app.
-- **The boot path was never affected.** A daemon started by `service.sh` at
-  boot is parented by `init` and unrelated to the manager app; this fix targets
-  the manual Action-button start.
-- **A stale `tailscale0` interface no longer blocks restarts.** A killed daemon
-  could leave `tailscale0` behind, which made the old logic refuse to start.
-  The stale interface is now cleaned with `tailscaled --cleanup` first.
-- **More accurate PID tracking.** `setsid` may fork, so the real daemon PID is
-  recorded after startup instead of the shell's `$!`.
+- **The updater could not download anything.** `download_file` previously tried
+  only `wget` and a hardcoded Termux `curl` path. Many devices (including
+  KernelSU setups) ship no `wget` and have no Termux, so "Update Tailscale"
+  always reported "Could not download the upstream commit marker" and
+  installation fell back to reusing old binaries. Android's bundled
+  `/system/bin/curl` is now tried first, with `wget` and Termux `curl` as
+  fallbacks.
+- **Installer downloads fixed too.** The download helper in `customize.sh` is
+  corrected the same way, so installation can fetch fresh binaries regardless of
+  whether `wget` exists.
+
+### Carried over from 0.5.1-zh
+
+- **The daemon no longer dies with the manager app.** Started from the manager's
+  Action button, it now runs under `setsid` in its own session instead of the
+  manager app's process group.
+- **Stale `tailscale0` is cleaned automatically** instead of blocking restarts.
 
 ### Version
 
-- Version `0.5.1-zh` (versionCode `501`).
-- Devices running `0.5.0-zh` can install this over the top; the authenticated
-  identity under `/data/adb/tailscale-native` is preserved.
+- Version `0.5.2-zh` (versionCode `502`).
+- Installs over `0.5.0-zh` / `0.5.1-zh`; the authenticated identity under
+  `/data/adb/tailscale-native` is preserved.
 
 ## Validation
 
 - `node tools/check-i18n.js` reports zero errors across all areas.
 - Shell syntax checks pass for every module script.
-- `en` and `zh-CN` dictionaries and `%s` placeholders remain aligned.
+- On a KernelSU device with no `wget`, `curl` downloads the upstream commit
+  marker and the 18.7 MB ARM64 binary successfully (ELF header verified).
 
 ## 验证
 
 - `node tools/check-i18n.js` 全部领域无 error。
 - 所有模块脚本通过 shell 语法检查。
-- `en` 与 `zh-CN` 词典及 `%s` 占位符保持对齐。
+- 在无 `wget` 的 KernelSU 设备上实测：`curl` 成功下载上游 commit 标记与
+  18.7 MB 的 ARM64 二进制（已校验 ELF 头）。
 
 ## Important
 

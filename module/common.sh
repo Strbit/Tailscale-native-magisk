@@ -215,6 +215,14 @@ download_file() {
 
     rm -f "$OUT"
 
+    # Prefer the system curl. Android ships /system/bin/curl on recent releases
+    # and KernelSU/Magisk boxes frequently have no wget at all, so relying on
+    # wget first made every update fail on those devices.
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --connect-timeout 20 --max-time 180 \
+            -o "$OUT" "$URL" && [ -s "$OUT" ] && return 0
+    fi
+
     if command -v wget >/dev/null 2>&1; then
         wget -q -T 45 -O "$OUT" "$URL" && [ -s "$OUT" ] && return 0
     fi
