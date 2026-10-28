@@ -51,12 +51,21 @@ if official_tailscale_vpn_active; then
     exit 0
 fi
 
+# A boot starts a fresh intent: the user may have stopped the daemon last
+# session, but a reboot means the module takes over again.
+rm -f "$DAEMON_STOPPED_MARKER"
+
 if ! start_daemon; then
     echo "$(date): $(msg service.start_failed)" >> "$LOGFILE"
     exit 1
 fi
 
 echo "$(date): $(msg service.started)" >> "$LOGFILE"
+
+# This watchdog is spawned from the init-run service, so it lives in the system
+# cgroup and survives the manager app being swiped away. It re-launches the
+# daemon if anything kills it.
+ensure_watchdog || echo "$(date): could not start the daemon watchdog" >> "$LOGFILE"
 
 if ensure_device_hostname; then
     echo "$(date): $(msg service.hostname_checked)" >> "$LOGFILE"

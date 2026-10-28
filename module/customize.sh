@@ -159,6 +159,7 @@ set_perm "$MODPATH/bin/tailscale" 0 0 0755
 set_perm "$MODPATH/bin/tailscaled" 0 0 0755
 set_perm "$MODPATH/common.sh" 0 0 0755
 set_perm "$MODPATH/i18n.sh" 0 0 0755
+set_perm "$MODPATH/watchdog.sh" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755
 set_perm "$MODPATH/action.sh" 0 0 0755
 set_perm "$MODPATH/webui.sh" 0 0 0755

@@ -35,6 +35,7 @@ if ! pid_is_ours; then
         msgf error.daemon_start "$LOGFILE"
         exit 1
     fi
+    ensure_watchdog || true
 fi
 
 STATUS_JSON="$($TAILSCALE --socket="$SOCKET" status --json 2>/dev/null)"
@@ -223,6 +224,7 @@ fi
 
 if start_daemon; then
     printf '%s\n' "$REMOTE_COMMIT" > "$INSTALLED_COMMIT_FILE"
+    ensure_watchdog || true
     echo
     msg update.success_restarted
     connection_summary

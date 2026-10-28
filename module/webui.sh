@@ -191,9 +191,15 @@ case "$1" in
             msg error.official_vpn
             exit 1
         fi
+        rm -f "$DAEMON_STOPPED_MARKER"
         start_daemon && msg daemon.started
+        ensure_watchdog || true
         ;;
     stop)
+        # Record the intent before stopping so the watchdog does not fight the
+        # user by bringing the daemon straight back.
+        : > "$DAEMON_STOPPED_MARKER"
+        stop_watchdog
         stop_daemon
         msg daemon.stopped
         ;;
@@ -202,8 +208,10 @@ case "$1" in
             msg error.official_vpn
             exit 1
         fi
+        rm -f "$DAEMON_STOPPED_MARKER"
         stop_daemon
         start_daemon && msg daemon.restarted
+        ensure_watchdog || true
         ;;
     login)
         require_running

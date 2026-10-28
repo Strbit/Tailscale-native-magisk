@@ -26,10 +26,10 @@ const LANG_ZH = "zh-CN";
 const SUPPORTED = [LANG_EN, LANG_ZH];
 
 const EXPECTED = {
-  version: "0.5.2-zh",
-  versionCode: "502",
-  tag: "v0.5.2-zh",
-  zipName: "native-tailscale-magisk-bootstrap-v0.5.2-zh.zip",
+  version: "0.5.3-zh",
+  versionCode: "503",
+  tag: "v0.5.3-zh",
+  zipName: "native-tailscale-magisk-bootstrap-v0.5.3-zh.zip",
   forkRepo: "Strbit/Tailscale-native-magisk",
   forkRaw: "https://raw.githubusercontent.com/Strbit/Tailscale-native-magisk/main",
   releaseBase: "https://github.com/Strbit/Tailscale-native-magisk/releases/download",
@@ -401,7 +401,7 @@ function parseShellDict(source, fnName, fileLabel) {
 function checkShell() {
   const files = [
     "module/i18n.sh", "module/webui.sh", "module/action.sh", "module/customize.sh",
-    "module/service.sh", "module/uninstall.sh",
+    "module/service.sh", "module/watchdog.sh", "module/uninstall.sh",
   ];
   for (const f of files) if (!exists(f)) error(f, "文件不存在");
 
@@ -464,6 +464,7 @@ function checkShell() {
     "module/webui.sh": /\$MODDIR\/i18n\.sh/,
     "module/action.sh": /\$MODDIR\/i18n\.sh/,
     "module/service.sh": /\$MODDIR\/i18n\.sh/,
+    "module/watchdog.sh": /\$MODDIR\/i18n\.sh/,
     "module/customize.sh": /\$MODPATH\/i18n\.sh/,
   };
   for (const [file, re] of Object.entries(callers)) {
@@ -697,7 +698,7 @@ function checkRelease() {
 
   const required = [
     "module.prop", "customize.sh", "service.sh", "action.sh", "common.sh",
-    "i18n.sh", "webui.sh", "uninstall.sh", "README.txt", "skip_mount",
+    "i18n.sh", "watchdog.sh", "webui.sh", "uninstall.sh", "README.txt", "skip_mount",
     "upstream_commit", "bin/.placeholder", "webroot/index.html", "webroot/app.js",
     "webroot/i18n.js", "webroot/styles.css",
   ];

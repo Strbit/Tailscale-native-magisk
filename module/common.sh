@@ -7,6 +7,8 @@ STATE="$BASE/tailscaled.state"
 PIDFILE="$BASE/tailscaled.pid"
 LOGFILE="$BASE/tailscaled.log"
 LOGIN_PIDFILE="$BASE/webui-login.pid"
+WATCHDOG_PIDFILE="$BASE/watchdog.pid"
+DAEMON_STOPPED_MARKER="$BASE/daemon-stopped"
 
 mkdir -p "$BASE"
 chmod 0700 "$BASE"
@@ -132,6 +134,70 @@ stop_daemon() {
     rm -f "$PIDFILE" "$SOCKET"
 }
 
+# Move a pid out of the /apps memory cgroup into the system one.
+#
+# setsid() only changes the session and process group. The cgroup is inherited
+# from the parent and is what Android's app cleanup actually walks, so a daemon
+# started from the manager app stays in /apps and dies with it even though its
+# parent is init. Moving it to the system cgroup restores boot-like immunity.
+move_daemon_to_system_cgroup() {
+    MOVE_PID="${1:-}"
+    [ -n "$MOVE_PID" ] || return 1
+    for TARGET in \
+        /sys/fs/cgroup/memory/system/cgroup.procs \
+        /sys/fs/cgroup/memory/cgroup.procs \
+        /sys/fs/cgroup/system.slice/cgroup.procs \
+        /sys/fs/cgroup/cgroup.procs
+    do
+        [ -w "$TARGET" ] || continue
+        printf '%s\n' "$MOVE_PID" > "$TARGET" 2>/dev/null && return 0
+    done
+    return 1
+}
+
+watchdog_pid() {
+    W_PID="$(cat "$WATCHDOG_PIDFILE" 2>/dev/null)"
+    [ -n "$W_PID" ] || return 1
+    [ -r "/proc/$W_PID/cmdline" ] || return 1
+    W_CMD="$(tr '\000' ' ' < "/proc/$W_PID/cmdline" 2>/dev/null)"
+    case "$W_CMD" in
+        *"watchdog.sh"*) printf '%s\n' "$W_PID"; return 0 ;;
+    esac
+    return 1
+}
+
+ensure_watchdog() {
+    watchdog_pid >/dev/null 2>&1 && return 0
+    [ -x "$MODDIR/watchdog.sh" ] || return 1
+    rm -f "$WATCHDOG_PIDFILE"
+    if command -v setsid >/dev/null 2>&1; then
+        setsid "$MODDIR/watchdog.sh" >/dev/null 2>&1 &
+    else
+        "$MODDIR/watchdog.sh" >/dev/null 2>&1 &
+    fi
+    W_I=0
+    while [ "$W_I" -lt 10 ]; do
+        W_REAL="$(watchdog_pid 2>/dev/null)"
+        if [ -n "$W_REAL" ]; then
+            # The watchdog must outlive the manager app too, otherwise it is
+            # useless exactly when it is needed.
+            move_daemon_to_system_cgroup "$W_REAL" || true
+            return 0
+        fi
+        sleep 1
+        W_I=$((W_I + 1))
+    done
+    return 1
+}
+
+stop_watchdog() {
+    W_PID="$(watchdog_pid 2>/dev/null)"
+    [ -n "$W_PID" ] || { rm -f "$WATCHDOG_PIDFILE"; return 0; }
+    kill "$W_PID" 2>/dev/null || true
+    rm -f "$WATCHDOG_PIDFILE"
+    return 0
+}
+
 start_daemon() {
     if pid_is_ours; then
         disable_unsupported_android_dns || true
@@ -195,7 +261,10 @@ start_daemon() {
         if [ -S "$SOCKET" ] && pid_is_ours; then
             # setsid may fork, so record the real daemon pid rather than $!.
             REAL_PID="$(managed_daemon_pid)"
-            [ -n "$REAL_PID" ] && echo "$REAL_PID" > "$PIDFILE"
+            if [ -n "$REAL_PID" ]; then
+                echo "$REAL_PID" > "$PIDFILE"
+                move_daemon_to_system_cgroup "$REAL_PID" || true
+            fi
             if ! disable_unsupported_android_dns; then
                 echo "$(date): could not disable unsupported native Android DNS preference" \
                     >> "$LOGFILE"

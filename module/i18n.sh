@@ -179,6 +179,7 @@ i18n_text_en() {
         service.started) printf '%s' "native tailscaled started" ;;
         service.hostname_checked) printf '%s' "device hostname preference checked" ;;
         service.auth_required) printf '%s' "authentication required; sign in from the Native Tailscale dashboard" ;;
+        watchdog.restarting) printf '%s' "watchdog: native tailscaled is gone, restarting it" ;;
         *) return 1 ;;
     esac
 }
@@ -283,6 +284,7 @@ i18n_text_zh() {
         service.started) printf '%s' "原生 tailscaled 已启动 (native tailscaled started)" ;;
         service.hostname_checked) printf '%s' "已检查设备主机名偏好 (device hostname preference checked)" ;;
         service.auth_required) printf '%s' "需要身份验证，请在 Native Tailscale 仪表盘登录 (authentication required; sign in from the dashboard)" ;;
+        watchdog.restarting) printf '%s' "看护器：原生 tailscaled 已消失，正在重新启动 (watchdog: daemon gone, restarting)" ;;
         *) return 1 ;;
     esac
 }

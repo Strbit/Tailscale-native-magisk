@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 MODULE = ROOT / "module"
 RELEASE = ROOT / "release"
 
-VERSION = "0.5.2-zh"
+VERSION = "0.5.3-zh"
 ZIP_NAME = f"native-tailscale-magisk-bootstrap-v{ VERSION }.zip"
 ZIP_PATH = RELEASE / ZIP_NAME
 
@@ -38,6 +38,7 @@ REQUIRED = [
     "action.sh",
     "common.sh",
     "i18n.sh",
+    "watchdog.sh",
     "webui.sh",
     "uninstall.sh",
     "README.txt",

@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.5.3-zh — 2026-10-29
+
+Fix the daemon still dying when the manager app is swiped away.
+
+### 中文
+
+- **真正修复「划掉管理器后 Tailscale 停止」**。`0.5.1-zh` 用 `setsid` 让守护
+  进程脱离了调用方的会话和进程组，实测 `ppid` 确实变成 `1`，但守护进程仍会被
+  杀。原因是 `setsid` 只改会话和进程组，**不改变 cgroup**：从管理器启动的进程
+  继承的是 `/apps` 内存 cgroup（实测 `memory:/apps`），而 Android 清理应用时按
+  cgroup 成批处理，于是守护进程照样被连带杀掉。开机启动之所以正常，是因为它由
+  `init` 拉起，本来就在 system cgroup。
+- **cgroup 迁移**：守护进程启动成功后，显式迁到 system cgroup，恢复与开机启动
+  相同的免疫效果。
+- **新增看护器 `watchdog.sh`**：由 `service.sh` 在开机时以 init 子进程身份启动，
+  位于 system cgroup；每 15 秒检查一次守护进程，若被外部杀掉则自动拉起，重新
+  拉起的进程同样落在 system cgroup。
+- **尊重用户意图**：仪表盘点「停止」会写入 `daemon-stopped` 标记并停止看护器，
+  看护器不会把用户主动停掉的服务又拉起来；点「启动」清除标记并恢复看护。
+
+### English
+
+- **Actually fix "Tailscale stops after the manager is swiped away".** `0.5.1-zh`
+  used `setsid` to detach the daemon from the caller's session and process group;
+  measured `ppid` really did become `1`, yet the daemon was still killed. The
+  reason is that `setsid` changes the session and process group but **not the
+  cgroup**: a process started from the manager inherits the `/apps` memory
+  cgroup (measured `memory:/apps`), and Android cleans apps up by cgroup, so the
+  daemon was swept away with them. Boot-time start was fine because it is
+  spawned by `init` and already lives in the system cgroup.
+- **cgroup migration**: after a successful start the daemon is explicitly moved
+  to the system cgroup, restoring boot-like immunity.
+- **New `watchdog.sh`**: started by `service.sh` at boot as an init child, so it
+  lives in the system cgroup; every 15 seconds it checks the daemon and
+  relaunches it if something killed it, and the relaunched process lands in the
+  system cgroup too.
+- **Respects user intent**: pressing Stop in the dashboard writes a
+  `daemon-stopped` marker and stops the watchdog so it will not resurrect a
+  deliberately stopped service; Start clears the marker and restores the
+  watchdog.
+
 ## 0.5.2-zh — 2026-10-27
 
 Fix binary download on devices without `wget`.

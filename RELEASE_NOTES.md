@@ -1,82 +1,92 @@
-# Native Tailscale TUN v0.5.2-zh
+# Native Tailscale TUN v0.5.3-zh
 
-This release fixes binary downloads on devices that have no `wget`, which made
-both the in-dashboard updater and the installer fail. It also includes the
-daemon lifecycle fix from `0.5.1-zh`.
+This release really fixes the daemon dying when the KernelSU or Magisk manager
+app is swiped away. The previous attempt only detached the process group, which
+turned out not to be what Android uses here.
 
 ## 中文
 
-本次发布修复了没有 `wget` 的设备上二进制下载失败的问题——这会导致仪表盘的
-「更新 Tailscale」和安装过程都无法下载。同时包含 `0.5.1-zh` 的守护进程生命周期
-修复。
+本次发布**真正修复**了「划掉 KernelSU / Magisk 管理器后 Tailscale 停止」的问题。
+上一版只做了进程组脱离，事实证明那不是 Android 实际采用的清理维度。
+
+### 根因
+
+`setsid` 确实生效了——实测守护进程 `ppid=1`，进程组与会话都独立。但它只改变
+会话和进程组，**不改变 cgroup**。从管理器启动的进程继承的是应用侧的
+`/apps` 内存 cgroup（实测 `memory:/apps`），而 Android 划掉应用时按 cgroup
+成批清理，于是守护进程被连带杀掉。
+
+开机启动之所以一直正常，是因为它由 `init` 拉起，本来就位于 system cgroup。
+这正是「开机启动没事、管理器启动会死」的真正分界。
 
 ### 修复
 
-- **更新程序无法下载**。此前 `download_file` 只尝试 `wget` 和写死的 Termux
-  `curl` 路径。许多设备（含 KernelSU 环境）既没有 `wget` 也未安装 Termux，
-  于是「更新 Tailscale」总是报「无法下载上游提交标记」，安装时也会退回复用旧
-  二进制。现在优先使用 Android 自带的 `/system/bin/curl`，再回退到 `wget` 与
-  Termux `curl`。
-- **安装期下载同步修复**。`customize.sh` 的下载函数一并修正，安装时可直接拉取
-  最新二进制，不再依赖设备上是否装了 `wget`。
-
-### 沿用 0.5.1-zh 的修复
-
-- **守护进程不再随管理器被划掉而退出**：从管理器「操作」按钮启动时，守护进程
-  现在通过 `setsid` 进入独立会话，不再依附管理器应用的进程组。
-- **残留 `tailscale0` 自动清理**：被强杀后不再因为接口残留而拒绝启动。
+- **cgroup 迁移**：守护进程启动成功后，显式迁到 system cgroup，恢复与开机启动
+  相同的免疫效果。
+- **新增看护器 `watchdog.sh`**：由 `service.sh` 在开机时以 init 子进程身份启动，
+  本身就在 system cgroup；每 15 秒巡检一次，守护进程若被外部杀掉会自动重新拉起，
+  重新拉起的进程同样落在 system cgroup。
+- **尊重用户意图**：仪表盘点「停止」会写入 `daemon-stopped` 标记并停止看护器，
+  看护器不会把用户主动停掉的服务又拉起来；点「启动」会清除标记并恢复看护。
 
 ### 版本
 
-- 版本号 `0.5.2-zh`（versionCode `502`）。
-- 可直接覆盖安装 `0.5.0-zh` / `0.5.1-zh`，登录身份保留在
-  `/data/adb/tailscale-native`。
+- 版本号 `0.5.3-zh`（versionCode `503`）。
+- 可直接覆盖安装，`/data/adb/tailscale-native` 中的登录身份保留。
+- 安装后请重启，让 `service.sh` 重新执行并在 init 上下文里拉起看护器。
 
 ## English
 
-This release fixes binary downloads on devices without `wget`, which broke both
-the dashboard updater and installation. It also carries the daemon lifecycle fix
-from `0.5.1-zh`.
+This release really fixes the daemon dying when the KernelSU or Magisk manager
+app is swiped away. The previous attempt only detached the process group, which
+turned out not to be the dimension Android actually cleans up along.
+
+### Root cause
+
+`setsid` did work — the daemon measurably had `ppid=1` with its own process
+group and session. But it only changes the session and process group, **not the
+cgroup**. A process started from the manager inherits the app-side `/apps`
+memory cgroup (measured `memory:/apps`), and Android cleans apps up by cgroup,
+so the daemon was killed along with them.
+
+Boot-time start was always fine because `init` spawns it, so it already lives in
+the system cgroup. That is the real dividing line between "boot start is fine"
+and "manager start dies".
 
 ### Fixed
 
-- **The updater could not download anything.** `download_file` previously tried
-  only `wget` and a hardcoded Termux `curl` path. Many devices (including
-  KernelSU setups) ship no `wget` and have no Termux, so "Update Tailscale"
-  always reported "Could not download the upstream commit marker" and
-  installation fell back to reusing old binaries. Android's bundled
-  `/system/bin/curl` is now tried first, with `wget` and Termux `curl` as
-  fallbacks.
-- **Installer downloads fixed too.** The download helper in `customize.sh` is
-  corrected the same way, so installation can fetch fresh binaries regardless of
-  whether `wget` exists.
-
-### Carried over from 0.5.1-zh
-
-- **The daemon no longer dies with the manager app.** Started from the manager's
-  Action button, it now runs under `setsid` in its own session instead of the
-  manager app's process group.
-- **Stale `tailscale0` is cleaned automatically** instead of blocking restarts.
+- **cgroup migration**: after a successful start the daemon is explicitly moved
+  to the system cgroup, restoring boot-like immunity.
+- **New `watchdog.sh`**: started by `service.sh` at boot as an init child, so it
+  already lives in the system cgroup. Every 15 seconds it checks the daemon and
+  relaunches it if something killed it; the relaunched process lands in the
+  system cgroup as well.
+- **Respects user intent**: pressing Stop writes a `daemon-stopped` marker and
+  stops the watchdog so it will not resurrect a deliberately stopped service;
+  Start clears the marker and restores the watchdog.
 
 ### Version
 
-- Version `0.5.2-zh` (versionCode `502`).
-- Installs over `0.5.0-zh` / `0.5.1-zh`; the authenticated identity under
+- Version `0.5.3-zh` (versionCode `503`).
+- Installs over previous versions; the authenticated identity under
   `/data/adb/tailscale-native` is preserved.
+- Reboot after installing so `service.sh` runs again and starts the watchdog in
+  the init context.
 
 ## Validation
 
 - `node tools/check-i18n.js` reports zero errors across all areas.
-- Shell syntax checks pass for every module script.
-- On a KernelSU device with no `wget`, `curl` downloads the upstream commit
-  marker and the 18.7 MB ARM64 binary successfully (ELF header verified).
+- Shell syntax checks pass for every module script, including `watchdog.sh`.
+- On the affected device the daemon was observed with `ppid=1` and
+  `cgroup memory:/apps` before the fix, which identified the cgroup as the
+  actual kill vector.
 
 ## 验证
 
 - `node tools/check-i18n.js` 全部领域无 error。
-- 所有模块脚本通过 shell 语法检查。
-- 在无 `wget` 的 KernelSU 设备上实测：`curl` 成功下载上游 commit 标记与
-  18.7 MB 的 ARM64 二进制（已校验 ELF 头）。
+- 所有模块脚本（含 `watchdog.sh`）通过 shell 语法检查。
+- 在问题设备上观测到修复前守护进程 `ppid=1` 而 `cgroup memory:/apps`，据此
+  定位到 cgroup 才是真正的清理维度。
 
 ## Important
 
@@ -85,8 +95,6 @@ from `0.5.1-zh`.
   script.
 - Disconnect the official Android Tailscale app before using the native daemon.
 - Existing identity under `/data/adb/tailscale-native` remains preserved.
-- Installing this fork replaces the upstream module of the same module ID
-  (`native_tailscale`); your saved identity is kept.
 
 ## 重要说明
 
@@ -94,8 +102,6 @@ from `0.5.1-zh`.
 - 安装后请重启，以便内核管理器激活全部更新后的模块脚本。
 - 使用原生守护进程前，请先断开官方 Android Tailscale 应用。
 - `/data/adb/tailscale-native` 中已有的身份会被保留。
-- 本 fork 与上游模块 ID 相同（`native_tailscale`），安装本 fork 会替换上游模块；
-  已保存的身份不受影响。
 
 ## SHA-256
 
