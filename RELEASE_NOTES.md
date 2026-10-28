@@ -1,94 +1,118 @@
-# Native Tailscale TUN v0.5.5-zh
+# Native Tailscale TUN v0.5.6-zh
 
-The watchdog now re-checks and corrects its own cgroup placement every round,
-and the fix was verified against the real "swipe away from recents" action.
+This release fixes the actual cause of "swiping KernelSU stops Tailscale".
+Previous releases moved the daemon out of the cgroup v1 memory bucket, but
+Android's swipe-away cleanup walks the **cgroup v2** subtree, which was never
+moved. Both hierarchies are now migrated, verified on a real device.
 
 ## 中文
 
-看护器现在每轮巡检都会自查并纠正 cgroup 归属，并且这次是用**真正的「划掉」**
-动作验证的。
+本次发布修复了「划掉 KernelSU 就停掉 Tailscale」的**真正原因**。之前几个版本
+只把守护进程迁出 cgroup v1 的内存桶，但 Android 的划掉清理走的是 **cgroup v2**
+子树，那一侧从未迁移过。现在两层都迁，并已真机验证。
 
-### 本次改动
+### 根因与证据
 
-- **看护器每 15 秒自我纠偏**：检查看护器自身与守护进程是否仍留在 `apps` 内存
-  桶，若在则立即迁到 `system`。即使开机时迁移因时机问题没成功，也会在一轮内
-  自动纠正，不需要再重启。
-- **用真正的「划掉」验证通过**：
-  - `am stack remove <taskId>`（等价于从最近任务划掉 KernelSU）后，守护进程与
-    看护器均存活 20 秒以上；
-  - 更激进的 `am force-stop` 也无法杀死它们。
+在 WebUI 点「启动」后，守护进程的归属是：
 
-### 关于之前那次失败
+```
+cgroup v1: 4:memory:/mimd/uid_10320
+cgroup v2: 0::/apps/uid_10320/pid_10639
+```
 
-你 01:47 复测时，设备上生效的还是 `0.5.3`——`0.5.4` 是 01:52 才安装的。而
-`0.5.3` 的 cgroup 迁移路径写错了（写的是 cgroup v2 根节点，实际有效的是
-`/dev/memcg` 的 v1 层级），所以守护进程和看护器当时都还留在 `apps` 桶里，被
-一起清掉。这不是 0.5.4 的回归。
+它仍嵌在 KernelSU 应用的 cgroup 子树里。划掉时系统记录：
 
-另外更正我自己的排查手法：我之前用 `am force-stop` 模拟"划掉"是错的，那比划掉
-激进得多，会连带杀掉 `su` 会话，连我自己的 adb 连接都被打断。已改用
-`am stack remove`。
+```
+am_kill: me.weishu.kernelsu ... due to SwipeUpClean
+```
+
+`SwipeUpClean` 顺着 v2 子树把这个后代进程一起清掉了。只迁 v1 不够，因为
+v2 路径没变。
+
+### 修复
+
+- **双层迁移**：同时迁 v1（`/dev/memcg/system`）与 v2
+  （`/sys/fs/cgroup/system`），并且各自回读 `/proc/PID/cgroup` 确认生效。
+- 看护器同样适用，它每轮巡检也会自查并纠正这两层归属。
+
+### 真机验证（Android 17 / KernelSU / arm64）
+
+| 时刻 | cgroup v1 | cgroup v2 | 状态 |
+| --- | --- | --- | --- |
+| 启动瞬间 | `/mimd/uid_10320` | `/apps/uid_10320/pid_10639` | 仍在应用子树 |
+| 1 秒后 | `/system` | `/system` | 迁移完成 |
+| 划掉 KernelSU 后 | `/system` | `/system` | 存活，`ppid=1` |
+
+划掉之后 `tailscale status` 正常，对端保持 direct 连接，看护器也存活。
 
 ### 使用
 
-- 安装后**重启一次**，让 `service.sh` 用新代码启动看护器并完成迁移。
-- 之后无论从管理器启动还是开机启动，看护器都会保证两者待在 `system` 桶。
+- 安装后重启一次，让 `service.sh` 用新代码启动看护器。
+- 之后无论从 WebUI 启动还是开机启动，两层次归属都会被纠正到 `/system`。
 
 ## English
 
-The watchdog now re-checks and corrects its own cgroup placement every round, and
-the fix was verified with the real "swipe away from recents" action.
+This release fixes the actual cause of "swiping KernelSU stops Tailscale".
+Previous releases only moved the daemon out of the cgroup v1 memory bucket, but
+Android's swipe-away cleanup walks the **cgroup v2** subtree, which was never
+moved. Both hierarchies are migrated now, verified on a real device.
 
-### Changed
+### Root cause and evidence
 
-- **The watchdog self-corrects every 15 seconds**: it checks whether itself and
-  the daemon are still in the `apps` memory bucket and moves them to `system` if
-  they are. Even if the boot-time migration loses a timing race, it self-heals
-  within one tick without a reboot.
-- **Verified with a real swipe**:
-  - `am stack remove <taskId>` (equivalent to removing KernelSU from recents)
-    left both the daemon and the watchdog alive for 20+ seconds;
-  - the more aggressive `am force-stop` also fails to kill them.
+After pressing Start in the WebUI, the daemon's placement was:
 
-### About the earlier failure
+```
+cgroup v1: 4:memory:/mimd/uid_10320
+cgroup v2: 0::/apps/uid_10320/pid_10639
+```
 
-When you retested at 01:47 the device was still running `0.5.3` — `0.5.4` was
-only installed at 01:52. `0.5.3` wrote the cgroup migration to the cgroup v2 root
-while the effective memory controller is the v1 mount at `/dev/memcg`, so the
-daemon and watchdog were still in the `apps` bucket and were swept away
-together. This was not a regression in `0.5.4`.
+It was still nested inside the KernelSU app's cgroup subtree. On swipe the
+system logged:
 
-I also have to correct my own debugging method: using `am force-stop` to
-simulate "swiping away" was wrong. It is far more aggressive than a swipe, kills
-the `su` session too, and even dropped my own adb connection. I switched to
-`am stack remove`.
+```
+am_kill: me.weishu.kernelsu ... due to SwipeUpClean
+```
+
+`SwipeUpClean` swept the descendant along the v2 subtree. Moving only v1 was not
+enough because the v2 path never changed.
+
+### Fixed
+
+- **Dual-hierarchy migration**: both v1 (`/dev/memcg/system`) and v2
+  (`/sys/fs/cgroup/system`) are moved, each verified by re-reading
+  `/proc/PID/cgroup`.
+- The watchdog applies the same correction for itself on every tick.
+
+### Verified on a real device (Android 17 / KernelSU / arm64)
+
+| Moment | cgroup v1 | cgroup v2 | State |
+| --- | --- | --- | --- |
+| at start-up | `/mimd/uid_10320` | `/apps/uid_10320/pid_10639` | still under the app |
+| one second later | `/system` | `/system` | migration done |
+| after swiping KernelSU | `/system` | `/system` | alive, `ppid=1` |
+
+After the swipe `tailscale status` is healthy, the peer stays on a direct
+connection, and the watchdog is alive as well.
 
 ### Usage
 
 - Reboot once after installing so `service.sh` starts the watchdog with the new
-  code and completes the migration.
-- From then on, whether started from the manager or at boot, the watchdog keeps
-  both processes in the `system` bucket.
+  code.
+- From then on, whether started from the WebUI or at boot, both hierarchies are
+  corrected to `/system`.
 
 ## Validation
 
 - `node tools/check-i18n.js` reports zero errors across all areas.
 - Shell syntax checks pass for every module script.
-- Device measurements (Android 17 / KernelSU / arm64, module `0.5.4` live):
-  - daemon and watchdog both `4:memory:/system`;
-  - `am stack remove 182` (KernelSU task) → daemon and watchdog alive 20+ s;
-  - `am force-stop me.weishu.kernelsu` → daemon and watchdog alive 20+ s;
-  - earlier `SIGKILL` of the daemon → watchdog restarted it in ~15 s.
+- Device measurements as shown in the tables above, captured with a 0.2 s
+  sampling monitor while performing the real swipe-away action.
 
 ## 验证
 
 - `node tools/check-i18n.js` 全部领域无 error。
 - 所有模块脚本通过 shell 语法检查。
-- 真机实测（Android 17 / KernelSU / arm64，生效版本 `0.5.4`）：
-  - 守护进程与看护器均在 `4:memory:/system`；
-  - `am stack remove 182`（KernelSU 任务）后两者存活 20 秒以上；
-  - `am force-stop me.weishu.kernelsu` 后两者同样存活 20 秒以上；
-  - 更早的强杀测试中，看护器约 15 秒完成自愈重启。
+- 真机数据见上表，由 0.2 秒粒度的监控在你实际划掉操作时抓取。
 
 ## Important
 

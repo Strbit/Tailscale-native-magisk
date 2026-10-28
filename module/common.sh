@@ -134,33 +134,51 @@ stop_daemon() {
     rm -f "$PIDFILE" "$SOCKET"
 }
 
-# Move a pid out of the /apps memory cgroup into the system one.
+# Move a pid out of the app cgroup buckets into the system ones.
 #
-# setsid() only changes the session and process group. The memory cgroup is
-# inherited from the parent and is what Android's app-side cleanup walks, so a
-# daemon started from the manager app stays in the "apps" bucket and is swept
-# away with the apps even though its parent is init. Boot-time start is immune
-# because init lives at the root of the same hierarchy.
+# setsid() only changes the session and process group. The cgroup is inherited
+# from the parent, and Android sweeps an app's descendants through BOTH
+# hierarchies:
+#   - cgroup v1 memory controller, mounted at /dev/memcg, path 4:memory:/apps
+#   - cgroup v2 unified hierarchy, mounted at /sys/fs/cgroup, path
+#     0::/apps/uid_XXXXX/pid_YYYYY
 #
-# The writable controller on Android is the cgroup v1 mount at /dev/memcg
-# (/sys/fs/cgroup is the v2 unified mount and does not move the v1 membership).
+# A daemon started from the manager app is nested under the app's cgroup in both
+# and is removed with it by a recents "SwipeUpClean". Moving only the v1 side is
+# not enough: the v2 path stays under /apps and the process still dies. Both
+# must be moved.
 move_daemon_to_system_cgroup() {
     MOVE_PID="${1:-}"
     [ -n "$MOVE_PID" ] || return 1
+    MOVE_ANY=0
+
+    # cgroup v1 memory controller.
     for TARGET in \
         /dev/memcg/system/cgroup.procs \
-        /dev/memcg/cgroup.procs \
+        /dev/memcg/cgroup.procs
+    do
+        [ -w "$TARGET" ] || continue
+        printf '%s\n' "$MOVE_PID" > "$TARGET" 2>/dev/null || continue
+        case "$(grep -m 1 '^4:memory:' "/proc/$MOVE_PID/cgroup" 2>/dev/null)" in
+            *":/apps"*) continue ;;
+            ?*) MOVE_ANY=1; break ;;
+        esac
+    done
+
+    # cgroup v2 unified hierarchy: this is the subtree SwipeUpClean walks.
+    for TARGET in \
+        /sys/fs/cgroup/system/cgroup.procs \
         /sys/fs/cgroup/cgroup.procs
     do
         [ -w "$TARGET" ] || continue
         printf '%s\n' "$MOVE_PID" > "$TARGET" 2>/dev/null || continue
-        # Verify the move actually took effect before claiming success.
-        case "$(grep -m 1 '^4:memory:' "/proc/$MOVE_PID/cgroup" 2>/dev/null)" in
+        case "$(grep -m 1 '^0::' "/proc/$MOVE_PID/cgroup" 2>/dev/null)" in
             *":/apps"*) continue ;;
-            ?*) return 0 ;;
+            ?*) MOVE_ANY=1; break ;;
         esac
     done
-    return 1
+
+    [ "$MOVE_ANY" -eq 1 ]
 }
 
 watchdog_pid() {

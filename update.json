@@ -1,6 +1,6 @@
 {
-  "version": "0.5.5-zh",
-  "versionCode": 505,
-  "zipUrl": "https://github.com/Strbit/Tailscale-native-magisk/releases/download/v0.5.5-zh/native-tailscale-magisk-bootstrap-v0.5.5-zh.zip",
+  "version": "0.5.6-zh",
+  "versionCode": 506,
+  "zipUrl": "https://github.com/Strbit/Tailscale-native-magisk/releases/download/v0.5.6-zh/native-tailscale-magisk-bootstrap-v0.5.6-zh.zip",
   "changelog": "https://raw.githubusercontent.com/Strbit/Tailscale-native-magisk/main/CHANGELOG.md"
 }

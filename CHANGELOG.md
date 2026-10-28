@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.5.6-zh — 2026-10-29
+
+Fix the real cause: Android's swipe-away cleanup walks the **cgroup v2** subtree,
+which the previous releases never moved.
+
+### 中文
+
+- **找到并修复真正的根因**。之前在 WebUI 点「启动」后被划掉仍会停止，实测证据：
+  - `am_kill` 记录 `me.weishu.kernelsu ... due to SwipeUpClean`，即上滑清理；
+  - 高频监控抓到启动瞬间的进程归属：
+    v1 `4:memory:/mimd/uid_10320`、v2 `0::/apps/uid_10320/pid_10639`，
+    也就是**仍嵌在应用的 cgroup 子树里**；
+  - 之前的迁移只写了 cgroup v1 内存控制器（`/dev/memcg`），v2 侧从未移动，
+    所以 `SwipeUpClean` 顺着 v2 子树把它一起清掉。
+- **双层迁移**：现在同时迁 v1（`/dev/memcg/system`）与
+  v2（`/sys/fs/cgroup/system`），并各自回读 `/proc/PID/cgroup` 校验。
+- **真机验证**（Android 17 / KernelSU / arm64）：
+  - 启动瞬间：`v1=/mimd/uid_10320`、`v2=/apps/uid_10320/pid_10639`；
+  - 1 秒后：`v1=/system`、`v2=/system`；
+  - 划掉 KernelSU 后：`ppid=1`，两层次均为 `/system`，**守护进程存活**，
+    Tailscale 连接保持，看护器同时存活。
+
+### English
+
+- **Found and fixed the real cause.** The daemon still stopped after a swipe
+  when started from the WebUI. Evidence:
+  - `am_kill` recorded `me.weishu.kernelsu ... due to SwipeUpClean`;
+  - a high-resolution monitor captured the placement at start-up:
+    v1 `4:memory:/mimd/uid_10320`, v2 `0::/apps/uid_10320/pid_10639` — still
+    nested inside the app's cgroup subtree;
+  - earlier releases only wrote the cgroup v1 memory controller
+    (`/dev/memcg`) and never moved the v2 side, so `SwipeUpClean` swept the
+    daemon away along the v2 subtree.
+- **Dual-hierarchy migration**: both v1 (`/dev/memcg/system`) and v2
+  (`/sys/fs/cgroup/system`) are now moved, each verified by re-reading
+  `/proc/PID/cgroup`.
+- **Verified on a real device** (Android 17 / KernelSU / arm64):
+  - at start-up: `v1=/mimd/uid_10320`, `v2=/apps/uid_10320/pid_10639`;
+  - one second later: `v1=/system`, `v2=/system`;
+  - after swiping KernelSU away: `ppid=1`, both hierarchies `/system`, the
+    daemon **survives**, Tailscale stays connected, and the watchdog survives
+    too.
+
 ## 0.5.5-zh — 2026-10-29
 
 Watchdog now self-corrects its cgroup placement; verified against the real
