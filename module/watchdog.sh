@@ -24,13 +24,21 @@ INTERVAL=15
 while :; do
     sleep "$INTERVAL"
 
+    # Keep the watchdog itself out of the app memory bucket. If it inherited
+    # /apps at spawn time it would be swept away together with the apps and
+    # could no longer restart anything.
+    move_daemon_to_system_cgroup "$$" >/dev/null 2>&1 || true
+
     # 用户主动停止：尊重意图，不做重启。
     if [ -f "$DAEMON_STOPPED_MARKER" ]; then
         continue
     fi
 
-    # 守护进程安好，无需处理。
+    # 守护进程安好：顺便纠正它的 cgroup 归属，避免被当成应用进程清理。
     if pid_is_ours; then
+        RUNNING_PID="$(cat "$PIDFILE" 2>/dev/null)"
+        [ -n "$RUNNING_PID" ] &&
+            move_daemon_to_system_cgroup "$RUNNING_PID" >/dev/null 2>&1
         continue
     fi
 

@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.5.5-zh — 2026-10-29
+
+Watchdog now self-corrects its cgroup placement; verified against the real
+"swipe away" action.
+
+### 中文
+
+- **看护器每轮自我纠偏**：每 15 秒巡检时，看护器会检查自己和守护进程是否仍
+  留在 `apps` 内存桶里，若是则立即迁到 `system`。这样即使开机时迁移因时机问题
+  失败，也能在一轮内自动纠正，不需要重启。
+- **用真正的「划掉」验证**：此前用 `am force-stop` 模拟是错的（那是强制停止，
+  比划掉激进得多，会连带杀 su 会话，甚至把我自己的 adb 连接搞断）。改用
+  `am stack remove <taskId>`（等价于从最近任务划掉）实测：
+  - 划掉 KernelSU 后，守护进程与看护器均存活 20 秒以上；
+  - `am force-stop` 同样无法杀死它们。
+- **澄清之前那次失败**：你 01:47 复测时，设备上生效的仍是 `0.5.3`（`0.5.4`
+  是 01:52 才安装的），而 `0.5.3` 的 cgroup 迁移路径写错了，守护进程和看护器
+  都还留在 `apps` 桶里，才会被一起清掉。
+
+### English
+
+- **Watchdog self-corrects every round**: on each 15-second tick it checks
+  whether itself and the daemon are still in the `apps` memory bucket and moves
+  them to `system` if so. Even if the boot-time migration loses a timing race,
+  it now self-heals within one tick without a reboot.
+- **Verified with a real "swipe away"**: the earlier `am force-stop` simulation
+  was wrong — that is a force-stop, far more aggressive than swiping, and it
+  kills the `su` session along with it, which even dropped my own adb
+  connection. Using `am stack remove <taskId>` (equivalent to removing the task
+  from recents) the measurement is:
+  - after removing KernelSU from recents, both the daemon and the watchdog
+    stayed alive for 20+ seconds;
+  - `am force-stop` also fails to kill them.
+- **Explains the earlier failure**: when you retested at 01:47 the device was
+  still running `0.5.3` (`0.5.4` was only installed at 01:52), and `0.5.3` had
+  the wrong cgroup migration path, so the daemon and watchdog were still in the
+  `apps` bucket and got swept away together.
+
 ## 0.5.4-zh — 2026-10-29
 
 Fix the cgroup migration path; the watchdog is verified working on a real

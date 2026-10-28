@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 MODULE = ROOT / "module"
 RELEASE = ROOT / "release"
 
-VERSION = "0.5.4-zh"
+VERSION = "0.5.5-zh"
 ZIP_NAME = f"native-tailscale-magisk-bootstrap-v{ VERSION }.zip"
 ZIP_PATH = RELEASE / ZIP_NAME
 

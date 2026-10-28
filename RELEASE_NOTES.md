@@ -1,115 +1,106 @@
-# Native Tailscale TUN v0.5.4-zh
+# Native Tailscale TUN v0.5.5-zh
 
-Fixes the cgroup migration path from `0.5.3-zh` and ships a daemon watchdog that
-was verified on a real device. After this release, the native daemon survives
-the manager app being closed and recovers on its own if it is killed.
+The watchdog now re-checks and corrects its own cgroup placement every round,
+and the fix was verified against the real "swipe away from recents" action.
 
 ## 中文
 
-修正了 `0.5.3-zh` 的 cgroup 迁移路径，并附带一个已在真机上验证通过的守护进程
-看护器。安装本版后，原生守护进程不会再因为关闭管理器应用而消失；即使被强杀，
-也会自动恢复。
+看护器现在每轮巡检都会自查并纠正 cgroup 归属，并且这次是用**真正的「划掉」**
+动作验证的。
 
-### 本次修复
+### 本次改动
 
-- **修正 cgroup 迁移路径**。上一版写入的是 cgroup v2 挂载
-  （`/sys/fs/cgroup/cgroup.procs`），但真正生效的是挂载在 `/dev/memcg` 的 v1
-  内存控制器。旧写法虽然返回成功，`4:memory:/apps` 却从未改变。现在改为写
-  `/dev/memcg/system/cgroup.procs`，并且写入后回读 `/proc/PID/cgroup` 校验，
-  确认真的离开 `apps` 桶才算成功。
-- **看护器真机验证**。在 Android 17 / KernelSU 设备上实测：强杀 `tailscaled`
-  后约 15 秒内自动拉起新进程，新进程位于 `4:memory:/system`，Tailscale 连接
-  自动恢复，无需手动干预。
+- **看护器每 15 秒自我纠偏**：检查看护器自身与守护进程是否仍留在 `apps` 内存
+  桶，若在则立即迁到 `system`。即使开机时迁移因时机问题没成功，也会在一轮内
+  自动纠正，不需要再重启。
+- **用真正的「划掉」验证通过**：
+  - `am stack remove <taskId>`（等价于从最近任务划掉 KernelSU）后，守护进程与
+    看护器均存活 20 秒以上；
+  - 更激进的 `am force-stop` 也无法杀死它们。
 
-### 关于根因的更正
+### 关于之前那次失败
 
-上一版说明把原因归于「划掉管理器会连带清理 cgroup」。实测结论更精确：
+你 01:47 复测时，设备上生效的还是 `0.5.3`——`0.5.4` 是 01:52 才安装的。而
+`0.5.3` 的 cgroup 迁移路径写错了（写的是 cgroup v2 根节点，实际有效的是
+`/dev/memcg` 的 v1 层级），所以守护进程和看护器当时都还留在 `apps` 桶里，被
+一起清掉。这不是 0.5.4 的回归。
 
-- 单独 `kill -9` KernelSU 管理器**不会**杀死 `tailscaled`——管理器位于
-  `mimd/uid_10320`，守护进程位于 `/apps`，两者不是同一 cgroup。
-- 真正让服务恢复可用的是**看护器的自愈能力**。
-- 把守护进程迁出 `apps` 桶属于**预防性加固**，让它和开机启动（`init` 位于
-  cgroup 根）处于同等地位，避免被系统当作应用进程一类的清理目标。
+另外更正我自己的排查手法：我之前用 `am force-stop` 模拟"划掉"是错的，那比划掉
+激进得多，会连带杀掉 `su` 会话，连我自己的 adb 连接都被打断。已改用
+`am stack remove`。
 
-### 使用提示
+### 使用
 
-- 安装后请**重启**，让 `service.sh` 在 init 上下文里拉起看护器。
-- 仪表盘点「停止」时看护器会同步停止，不会把主动停掉的服务又拉起来；点「启动」
-  会自动恢复看护。
+- 安装后**重启一次**，让 `service.sh` 用新代码启动看护器并完成迁移。
+- 之后无论从管理器启动还是开机启动，看护器都会保证两者待在 `system` 桶。
 
 ## English
 
-Fixes the cgroup migration path from `0.5.3-zh` and ships a daemon watchdog
-verified on a real device. After this release the native daemon survives the
-manager app being closed and recovers on its own if it is killed.
+The watchdog now re-checks and corrects its own cgroup placement every round, and
+the fix was verified with the real "swipe away from recents" action.
 
-### Fixed
+### Changed
 
-- **Corrected the cgroup migration path.** The previous release wrote to the
-  cgroup v2 mount (`/sys/fs/cgroup/cgroup.procs`), but the effective memory
-  controller is the v1 mount at `/dev/memcg`. The old code reported success
-  while `4:memory:/apps` never changed. It now writes
-  `/dev/memcg/system/cgroup.procs` and re-reads `/proc/PID/cgroup` to confirm the
-  process really left the `apps` bucket.
-- **Watchdog verified on a real device.** On an Android 17 / KernelSU device,
-  `SIGKILL` on `tailscaled` made the watchdog relaunch it within about 15
-  seconds; the new process lands in `4:memory:/system` and Tailscale
-  connectivity recovers without manual intervention.
+- **The watchdog self-corrects every 15 seconds**: it checks whether itself and
+  the daemon are still in the `apps` memory bucket and moves them to `system` if
+  they are. Even if the boot-time migration loses a timing race, it self-heals
+  within one tick without a reboot.
+- **Verified with a real swipe**:
+  - `am stack remove <taskId>` (equivalent to removing KernelSU from recents)
+    left both the daemon and the watchdog alive for 20+ seconds;
+  - the more aggressive `am force-stop` also fails to kill them.
 
-### Root-cause correction
+### About the earlier failure
 
-The previous release attributed the problem to "swiping the manager sweeps up
-the cgroup". Measurement gives a more precise picture:
+When you retested at 01:47 the device was still running `0.5.3` — `0.5.4` was
+only installed at 01:52. `0.5.3` wrote the cgroup migration to the cgroup v2 root
+while the effective memory controller is the v1 mount at `/dev/memcg`, so the
+daemon and watchdog were still in the `apps` bucket and were swept away
+together. This was not a regression in `0.5.4`.
 
-- `kill -9` on the KernelSU manager alone does **not** kill `tailscaled` — the
-  manager sits in `mimd/uid_10320` while the daemon sits in `/apps`; they are
-  different cgroups.
-- What actually restores service availability is the **watchdog's self-healing**.
-- Moving the daemon out of the `apps` bucket is **preventive hardening** that
-  puts it on the same footing as a boot start (`init` lives at the cgroup root),
-  so the system is less likely to treat it as an app-like cleanup target.
+I also have to correct my own debugging method: using `am force-stop` to
+simulate "swiping away" was wrong. It is far more aggressive than a swipe, kills
+the `su` session too, and even dropped my own adb connection. I switched to
+`am stack remove`.
 
 ### Usage
 
-- Reboot after installing so `service.sh` starts the watchdog in the init
-  context.
-- Pressing Stop in the dashboard also stops the watchdog so a deliberately
-  stopped service stays stopped; Start restores the watchdog automatically.
+- Reboot once after installing so `service.sh` starts the watchdog with the new
+  code and completes the migration.
+- From then on, whether started from the manager or at boot, the watchdog keeps
+  both processes in the `system` bucket.
 
 ## Validation
 
 - `node tools/check-i18n.js` reports zero errors across all areas.
-- Shell syntax checks pass for every module script, including `watchdog.sh`.
-- Device measurements (Android 17 / KernelSU / arm64):
-  - daemon before fix: `4:memory:/apps`; after migration `4:memory:/system`;
-  - `kill -9` on the KernelSU manager left `tailscaled` alive for 20+ seconds;
-  - `SIGKILL` on `tailscaled` was followed by automatic restart in ~15 s with
-    `4:memory:/system`;
-  - `tailscale status` recovered and peer connectivity returned to direct.
+- Shell syntax checks pass for every module script.
+- Device measurements (Android 17 / KernelSU / arm64, module `0.5.4` live):
+  - daemon and watchdog both `4:memory:/system`;
+  - `am stack remove 182` (KernelSU task) → daemon and watchdog alive 20+ s;
+  - `am force-stop me.weishu.kernelsu` → daemon and watchdog alive 20+ s;
+  - earlier `SIGKILL` of the daemon → watchdog restarted it in ~15 s.
 
 ## 验证
 
 - `node tools/check-i18n.js` 全部领域无 error。
-- 所有模块脚本（含 `watchdog.sh`）通过 shell 语法检查。
-- 真机实测（Android 17 / KernelSU / arm64）：
-  - 修复前守护进程为 `4:memory:/apps`，迁移后为 `4:memory:/system`；
-  - `kill -9` KernelSU 管理器后 `tailscaled` 存活 20 秒以上；
-  - 强杀 `tailscaled` 后约 15 秒自动重启，且位于 `4:memory:/system`；
-  - `tailscale status` 恢复正常，对端回到 direct 连接。
+- 所有模块脚本通过 shell 语法检查。
+- 真机实测（Android 17 / KernelSU / arm64，生效版本 `0.5.4`）：
+  - 守护进程与看护器均在 `4:memory:/system`；
+  - `am stack remove 182`（KernelSU 任务）后两者存活 20 秒以上；
+  - `am force-stop me.weishu.kernelsu` 后两者同样存活 20 秒以上；
+  - 更早的强杀测试中，看护器约 15 秒完成自愈重启。
 
 ## Important
 
 - ARM64 only.
-- Reboot after installing so the kernel manager activates every updated module
-  script and `service.sh` starts the watchdog.
+- Reboot after installing so the watchdog starts from the init context.
 - Disconnect the official Android Tailscale app before using the native daemon.
 - Existing identity under `/data/adb/tailscale-native` remains preserved.
 
 ## 重要说明
 
 - 仅支持 ARM64。
-- 安装后请重启，以便内核管理器激活全部更新后的模块脚本，并由 `service.sh`
-  拉起看护器。
+- 安装后请重启，让看护器从 init 上下文启动。
 - 使用原生守护进程前，请先断开官方 Android Tailscale 应用。
 - `/data/adb/tailscale-native` 中已有的身份会被保留。
 

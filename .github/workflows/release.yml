@@ -12,9 +12,9 @@ permissions:
   contents: write
 
 env:
-  RELEASE_TAG: v0.5.4-zh
-  RELEASE_TITLE: Native Tailscale TUN v0.5.4-zh
-  RELEASE_ZIP: native-tailscale-magisk-bootstrap-v0.5.4-zh.zip
+  RELEASE_TAG: v0.5.5-zh
+  RELEASE_TITLE: Native Tailscale TUN v0.5.5-zh
+  RELEASE_ZIP: native-tailscale-magisk-bootstrap-v0.5.5-zh.zip
 
 jobs:
   release:
@@ -30,7 +30,7 @@ jobs:
           grep -F "release/$RELEASE_ZIP" SHA256SUMS
           sha256sum --check --ignore-missing SHA256SUMS
 
-      - name: Publish v0.5.4-zh
+      - name: Publish v0.5.5-zh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
