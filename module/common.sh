@@ -136,21 +136,29 @@ stop_daemon() {
 
 # Move a pid out of the /apps memory cgroup into the system one.
 #
-# setsid() only changes the session and process group. The cgroup is inherited
-# from the parent and is what Android's app cleanup actually walks, so a daemon
-# started from the manager app stays in /apps and dies with it even though its
-# parent is init. Moving it to the system cgroup restores boot-like immunity.
+# setsid() only changes the session and process group. The memory cgroup is
+# inherited from the parent and is what Android's app-side cleanup walks, so a
+# daemon started from the manager app stays in the "apps" bucket and is swept
+# away with the apps even though its parent is init. Boot-time start is immune
+# because init lives at the root of the same hierarchy.
+#
+# The writable controller on Android is the cgroup v1 mount at /dev/memcg
+# (/sys/fs/cgroup is the v2 unified mount and does not move the v1 membership).
 move_daemon_to_system_cgroup() {
     MOVE_PID="${1:-}"
     [ -n "$MOVE_PID" ] || return 1
     for TARGET in \
-        /sys/fs/cgroup/memory/system/cgroup.procs \
-        /sys/fs/cgroup/memory/cgroup.procs \
-        /sys/fs/cgroup/system.slice/cgroup.procs \
+        /dev/memcg/system/cgroup.procs \
+        /dev/memcg/cgroup.procs \
         /sys/fs/cgroup/cgroup.procs
     do
         [ -w "$TARGET" ] || continue
-        printf '%s\n' "$MOVE_PID" > "$TARGET" 2>/dev/null && return 0
+        printf '%s\n' "$MOVE_PID" > "$TARGET" 2>/dev/null || continue
+        # Verify the move actually took effect before claiming success.
+        case "$(grep -m 1 '^4:memory:' "/proc/$MOVE_PID/cgroup" 2>/dev/null)" in
+            *":/apps"*) continue ;;
+            ?*) return 0 ;;
+        esac
     done
     return 1
 }

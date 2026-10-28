@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.5.4-zh — 2026-10-29
+
+Fix the cgroup migration path; the watchdog is verified working on a real
+device.
+
+### 中文
+
+- **修正 cgroup 迁移路径**。`0.5.3-zh` 写入的是 cgroup v2 挂载
+  （`/sys/fs/cgroup/cgroup.procs`），实际有效的是 v1 内存控制器挂载在
+  `/dev/memcg`。之前的写法虽然返回成功，但 `4:memory:/apps` 并未改变。现在改为
+  写 `/dev/memcg/system/cgroup.procs`，并且写入后回读 `/proc/PID/cgroup` 校验，
+  确认真的离开了 `apps` 桶才算成功。
+- **看护器真机验证通过**。在 Android 17 / KernelSU 设备上实测：强杀
+  `tailscaled` 后，看护器在约 15 秒内自动拉起新进程，新进程
+  `4:memory:/system`，Tailscale 连接自动恢复。
+- **澄清根因边界**。实测表明单独 `kill -9` KernelSU 管理器**不会**杀死
+  `tailscaled`（管理器位于 `mimd/uid_10320`，守护进程位于 `/apps`，两者不同
+  cgroup）。因此 0.5.3 的表述不准确：真正生效的是看护器的自愈能力；把守护进程
+  迁出 `apps` 桶是预防性加固，让它与开机启动（init 位于根 cgroup）保持一致的
+  地位。
+- 安装后请重启，让 `service.sh` 在 init 上下文里拉起看护器。
+
+### English
+
+- **Fixed the cgroup migration path.** `0.5.3-zh` wrote to the cgroup v2 mount
+  (`/sys/fs/cgroup/cgroup.procs`), but the effective memory controller is the
+  v1 mount at `/dev/memcg`. The old code reported success while
+  `4:memory:/apps` never changed. It now writes
+  `/dev/memcg/system/cgroup.procs` and re-reads `/proc/PID/cgroup` to confirm
+  the process really left the `apps` bucket.
+- **Watchdog verified on a real device.** On an Android 17 / KernelSU device,
+  killing `tailscaled` with `SIGKILL` made the watchdog relaunch it within about
+  15 seconds; the new process lands in `4:memory:/system` and Tailscale
+  connectivity recovers on its own.
+- **Corrected the root-cause claim.** Measurement shows that `kill -9` on the
+  KernelSU manager alone does **not** kill `tailscaled` (the manager sits in
+  `mimd/uid_10320` while the daemon sits in `/apps` — different cgroups). The
+  watchdog's self-healing is therefore the effective fix; moving the daemon out
+  of the `apps` bucket is preventive hardening that puts it on the same footing
+  as a boot start (init lives at the cgroup root).
+- Reboot after installing so `service.sh` starts the watchdog in the init
+  context.
+
 ## 0.5.3-zh — 2026-10-29
 
 Fix the daemon still dying when the manager app is swiped away.
