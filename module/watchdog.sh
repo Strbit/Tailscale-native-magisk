@@ -29,6 +29,10 @@ while :; do
     # could no longer restart anything.
     move_daemon_to_system_cgroup "$$" >/dev/null 2>&1 || true
 
+    # 热点子网若与 Tailscale 的子网路由同网段，隔离其转发流量，避免本机热点
+    # 下的设备被抢路由；没有冲突时自动释放规则。
+    guard_hotspot_route >/dev/null 2>&1 || true
+
     # 用户主动停止：尊重意图，不做重启。
     if [ -f "$DAEMON_STOPPED_MARKER" ]; then
         continue

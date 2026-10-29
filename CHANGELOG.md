@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.5.7-zh — 2026-10-29
+
+Add a hotspot route guard so accepting tailnet subnet routes no longer breaks
+the phone's own hotspot LAN.
+
+### 中文
+
+- **新增「热点子网保护」**。Android 手机热点默认使用 `192.168.43.0/24`。当
+  Tailscale 开启接受子网路由（`accept-routes`），而对端节点也通告
+  `192.168.43.0/24` 时，Tailscale 会在策略路由表 52 里安装
+  `192.168.43.0/24 dev tailscale0`。结果本机热点下设备的转发流量被抢进隧道，
+  表现为「热点里的设备访问不了本地网络」，而本机自己却正常。
+- **修复方式**：仅当**热点子网与 table 52 中的路由同网段**时才介入，为热点接口
+  插入一条更高优先级的策略规则
+  `ip rule add iif <热点接口> lookup main pref 5000`，让热点转发流量查 main 表。
+  本机自己发起的流量不受影响，仍然经 Tailscale 访问对端局域网。
+- **自动跟随热点开关**：看护器每 15 秒检查一次，热点开启/关闭、网段变化、
+  Tailscale 启停都会自动插入或释放规则，并写入日志。
+- **真机验证**（Android 17 / KernelSU / arm64，热点接口 `wlan2`）：
+
+  | 测试 | 加规则前 | 加规则后 |
+  | --- | --- | --- |
+  | 热点客户端 → `192.168.43.5` | `dev tailscale0`（被劫持） | `dev wlan2`（本地） |
+  | 本机自身 → `192.168.43.5` | `dev tailscale0` | `dev tailscale0`（不变） |
+  | 热点客户端 → `8.8.8.8` | 正常经 VPN | 正常经 VPN |
+
+  关闭热点后规则自动释放，无残留。
+
+### English
+
+- **New hotspot route guard.** Android hotspots default to `192.168.43.0/24`.
+  When Tailscale accepts subnet routes and a peer advertises the same
+  `192.168.43.0/24`, Tailscale installs `192.168.43.0/24 dev tailscale0` in
+  policy table 52. Forwarded traffic from the hotspot's clients is then pulled
+  into the tunnel, so devices on the hotspot cannot reach the local network,
+  while the phone itself still works.
+- **Fix**: only when the hotspot subnet collides with a route in table 52, add a
+  higher-priority policy rule
+  `ip rule add iif <hotspot-iface> lookup main pref 5000` so forwarded hotspot
+  traffic consults the main table. The phone's own traffic is untouched and
+  still reaches the peer LAN over Tailscale.
+- **Follows the hotspot automatically**: the watchdog re-checks every 15
+  seconds and adds or releases the rule as the hotspot, subnet, or Tailscale
+  state changes, logging each transition.
+- **Verified on a real device** (Android 17 / KernelSU / arm64, hotspot interface
+  `wlan2`):
+
+  | Test | Before | After |
+  | --- | --- | --- |
+  | hotspot client → `192.168.43.5` | `dev tailscale0` (hijacked) | `dev wlan2` (local) |
+  | phone itself → `192.168.43.5` | `dev tailscale0` | `dev tailscale0` (unchanged) |
+  | hotspot client → `8.8.8.8` | works via VPN | works via VPN |
+
+  Stopping the hotspot releases the rule automatically with no leftovers.
+
 ## 0.5.6-zh — 2026-10-29
 
 Fix the real cause: Android's swipe-away cleanup walks the **cgroup v2** subtree,

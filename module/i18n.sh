@@ -180,6 +180,8 @@ i18n_text_en() {
         service.hostname_checked) printf '%s' "device hostname preference checked" ;;
         service.auth_required) printf '%s' "authentication required; sign in from the Native Tailscale dashboard" ;;
         watchdog.restarting) printf '%s' "watchdog: native tailscaled is gone, restarting it" ;;
+        guard.hotspot_applied) printf '%s' "hotspot guard: %s shares the tailnet route for %s, keeping its traffic local" ;;
+        guard.hotspot_removed) printf '%s' "hotspot guard: released %s (no route conflict)" ;;
         *) return 1 ;;
     esac
 }
@@ -285,6 +287,8 @@ i18n_text_zh() {
         service.hostname_checked) printf '%s' "已检查设备主机名偏好 (device hostname preference checked)" ;;
         service.auth_required) printf '%s' "需要身份验证，请在 Native Tailscale 仪表盘登录 (authentication required; sign in from the dashboard)" ;;
         watchdog.restarting) printf '%s' "看护器：原生 tailscaled 已消失，正在重新启动 (watchdog: daemon gone, restarting)" ;;
+        guard.hotspot_applied) printf '%s' "热点保护：%s 与 Tailnet 的 %s 网段冲突，已让其流量走本地 (hotspot subnet conflict, kept local)" ;;
+        guard.hotspot_removed) printf '%s' "热点保护：已释放 %s (hotspot guard: released)" ;;
         *) return 1 ;;
     esac
 }

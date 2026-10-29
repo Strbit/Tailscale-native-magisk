@@ -1,131 +1,125 @@
-# Native Tailscale TUN v0.5.6-zh
+# Native Tailscale TUN v0.5.7-zh
 
-This release fixes the actual cause of "swiping KernelSU stops Tailscale".
-Previous releases moved the daemon out of the cgroup v1 memory bucket, but
-Android's swipe-away cleanup walks the **cgroup v2** subtree, which was never
-moved. Both hierarchies are now migrated, verified on a real device.
+Adds a hotspot route guard: accepting tailnet subnet routes no longer breaks the
+phone's own hotspot LAN when both sides use `192.168.43.0/24`.
 
 ## 中文
 
-本次发布修复了「划掉 KernelSU 就停掉 Tailscale」的**真正原因**。之前几个版本
-只把守护进程迁出 cgroup v1 的内存桶，但 Android 的划掉清理走的是 **cgroup v2**
-子树，那一侧从未迁移过。现在两层都迁，并已真机验证。
+新增「热点子网保护」：当两侧都使用 `192.168.43.0/24` 时，接受 Tailnet 子网路由
+不再会破坏本机热点的局域网访问。
 
-### 根因与证据
+### 问题
 
-在 WebUI 点「启动」后，守护进程的归属是：
-
-```
-cgroup v1: 4:memory:/mimd/uid_10320
-cgroup v2: 0::/apps/uid_10320/pid_10639
-```
-
-它仍嵌在 KernelSU 应用的 cgroup 子树里。划掉时系统记录：
+Android 手机热点默认网段是 `192.168.43.0/24`。开启 `accept-routes` 后，若对端
+节点也通告 `192.168.43.0/24`，Tailscale 会在策略路由表 52 安装：
 
 ```
-am_kill: me.weishu.kernelsu ... due to SwipeUpClean
+table 52: 192.168.43.0/24 dev tailscale0
 ```
 
-`SwipeUpClean` 顺着 v2 子树把这个后代进程一起清掉了。只迁 v1 不够，因为
-v2 路径没变。
+于是本机热点下设备的**转发流量**被抢进隧道，表现出「热点里的设备访问不了本地
+网络」，而手机自己访问对端局域网却是正常的。两者用了同一网段，靠目的地址无法
+区分。
 
 ### 修复
 
-- **双层迁移**：同时迁 v1（`/dev/memcg/system`）与 v2
-  （`/sys/fs/cgroup/system`），并且各自回读 `/proc/PID/cgroup` 确认生效。
-- 看护器同样适用，它每轮巡检也会自查并纠正这两层归属。
+仅当热点子网与 table 52 中的路由**确实同网段**时介入，为热点接口插入一条更高
+优先级的策略规则：
 
-### 真机验证（Android 17 / KernelSU / arm64）
+```
+ip rule add iif wlan2 lookup main pref 5000
+```
 
-| 时刻 | cgroup v1 | cgroup v2 | 状态 |
-| --- | --- | --- | --- |
-| 启动瞬间 | `/mimd/uid_10320` | `/apps/uid_10320/pid_10639` | 仍在应用子树 |
-| 1 秒后 | `/system` | `/system` | 迁移完成 |
-| 划掉 KernelSU 后 | `/system` | `/system` | 存活，`ppid=1` |
+这条规则只影响「从热点接口进来」的流量，让它查 main 表（本地直连）。手机自己
+发起的流量不匹配该规则，仍走 table 52 经 Tailscale 到对端局域网。
 
-划掉之后 `tailscale status` 正常，对端保持 direct 连接，看护器也存活。
+看护器每 15 秒复查一次，热点开关、网段变化、Tailscale 启停都会自动插入或释放
+规则，并记录日志。
 
-### 使用
+### 真机验证（Android 17 / KernelSU / arm64，热点接口 wlan2）
 
-- 安装后重启一次，让 `service.sh` 用新代码启动看护器。
-- 之后无论从 WebUI 启动还是开机启动，两层次归属都会被纠正到 `/system`。
+| 测试 | 加规则前 | 加规则后 |
+| --- | --- | --- |
+| 热点客户端 → `192.168.43.5` | `dev tailscale0`（被劫持） | `dev wlan2`（本地） |
+| 手机自身 → `192.168.43.5` | `dev tailscale0` | `dev tailscale0`（不变） |
+| 热点客户端 → `8.8.8.8` | 正常经 VPN | 正常经 VPN |
+
+关闭热点后规则自动释放，无残留；无冲突时不插入任何规则，行为与原生一致。
 
 ## English
 
-This release fixes the actual cause of "swiping KernelSU stops Tailscale".
-Previous releases only moved the daemon out of the cgroup v1 memory bucket, but
-Android's swipe-away cleanup walks the **cgroup v2** subtree, which was never
-moved. Both hierarchies are migrated now, verified on a real device.
+Adds a hotspot route guard: accepting tailnet subnet routes no longer breaks the
+phone's own hotspot LAN when both sides use `192.168.43.0/24`.
 
-### Root cause and evidence
+### Problem
 
-After pressing Start in the WebUI, the daemon's placement was:
-
-```
-cgroup v1: 4:memory:/mimd/uid_10320
-cgroup v2: 0::/apps/uid_10320/pid_10639
-```
-
-It was still nested inside the KernelSU app's cgroup subtree. On swipe the
-system logged:
+Android hotspots default to `192.168.43.0/24`. With `accept-routes` enabled, if a
+peer advertises the same `192.168.43.0/24`, Tailscale installs:
 
 ```
-am_kill: me.weishu.kernelsu ... due to SwipeUpClean
+table 52: 192.168.43.0/24 dev tailscale0
 ```
 
-`SwipeUpClean` swept the descendant along the v2 subtree. Moving only v1 was not
-enough because the v2 path never changed.
+Forwarded traffic from the hotspot's clients is then pulled into the tunnel, so
+devices on the hotspot cannot reach the local network, while the phone itself
+still reaches the peer LAN. Both sides share one subnet, so the destination
+address alone cannot distinguish them.
 
-### Fixed
+### Fix
 
-- **Dual-hierarchy migration**: both v1 (`/dev/memcg/system`) and v2
-  (`/sys/fs/cgroup/system`) are moved, each verified by re-reading
-  `/proc/PID/cgroup`.
-- The watchdog applies the same correction for itself on every tick.
+Only when the hotspot subnet actually collides with a route in table 52, a
+higher-priority policy rule is added for the hotspot interface:
 
-### Verified on a real device (Android 17 / KernelSU / arm64)
+```
+ip rule add iif wlan2 lookup main pref 5000
+```
 
-| Moment | cgroup v1 | cgroup v2 | State |
-| --- | --- | --- | --- |
-| at start-up | `/mimd/uid_10320` | `/apps/uid_10320/pid_10639` | still under the app |
-| one second later | `/system` | `/system` | migration done |
-| after swiping KernelSU | `/system` | `/system` | alive, `ppid=1` |
+It affects only traffic arriving on the hotspot interface, which then consults
+the main table (local link). The phone's own traffic does not match the rule and
+still uses table 52 to reach the peer LAN over Tailscale.
 
-After the swipe `tailscale status` is healthy, the peer stays on a direct
-connection, and the watchdog is alive as well.
+The watchdog re-checks every 15 seconds and adds or releases the rule as the
+hotspot, subnet, or Tailscale state changes, logging each transition.
 
-### Usage
+### Verified on a real device (Android 17 / KernelSU / arm64, hotspot `wlan2`)
 
-- Reboot once after installing so `service.sh` starts the watchdog with the new
-  code.
-- From then on, whether started from the WebUI or at boot, both hierarchies are
-  corrected to `/system`.
+| Test | Before | After |
+| --- | --- | --- |
+| hotspot client → `192.168.43.5` | `dev tailscale0` (hijacked) | `dev wlan2` (local) |
+| phone itself → `192.168.43.5` | `dev tailscale0` | `dev tailscale0` (unchanged) |
+| hotspot client → `8.8.8.8` | works via VPN | works via VPN |
+
+Stopping the hotspot releases the rule automatically with no leftovers, and when
+there is no conflict no rule is inserted at all.
 
 ## Validation
 
 - `node tools/check-i18n.js` reports zero errors across all areas.
 - Shell syntax checks pass for every module script.
-- Device measurements as shown in the tables above, captured with a 0.2 s
-  sampling monitor while performing the real swipe-away action.
+- Device measurements above were taken with a temporary software hotspot created
+  via `cmd wifi start-softap`, and path resolution was verified with
+  `ip route get ... from ... iif ...`.
 
 ## 验证
 
 - `node tools/check-i18n.js` 全部领域无 error。
 - 所有模块脚本通过 shell 语法检查。
-- 真机数据见上表，由 0.2 秒粒度的监控在你实际划掉操作时抓取。
+- 上述真机数据使用 `cmd wifi start-softap` 临时开热点测得，路径用
+  `ip route get ... from ... iif ...` 精确验证。
 
 ## Important
 
 - ARM64 only.
-- Reboot after installing so the watchdog starts from the init context.
-- Disconnect the official Android Tailscale app before using the native daemon.
+- The guard only acts on a real subnet collision; otherwise the routing is left
+  exactly as Android configured it.
+- Reboot after installing so `service.sh` starts the watchdog with the new code.
 - Existing identity under `/data/adb/tailscale-native` remains preserved.
 
 ## 重要说明
 
 - 仅支持 ARM64。
-- 安装后请重启，让看护器从 init 上下文启动。
-- 使用原生守护进程前，请先断开官方 Android Tailscale 应用。
+- 该保护只在真正发生同网段冲突时介入，否则完全不改动系统原有路由。
+- 安装后请重启，让 `service.sh` 用新代码启动看护器。
 - `/data/adb/tailscale-native` 中已有的身份会被保留。
 
 ## SHA-256

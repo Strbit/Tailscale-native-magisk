@@ -181,8 +181,88 @@ move_daemon_to_system_cgroup() {
     [ "$MOVE_ANY" -eq 1 ]
 }
 
-watchdog_pid() {
-    W_PID="$(cat "$WATCHDOG_PIDFILE" 2>/dev/null)"
+# --- 本地热点子网保护 -------------------------------------------------------
+#
+# Tailscale 的 accept-routes 会把对端通告的子网路由装进 table 52。Android 手机
+# 热点默认使用 192.168.43.0/24，一旦对端通告的也是同一网段，本机热点下设备的
+# 转发流量就会被 table 52 抢走，表现为"热点里的设备访问不了本地网络"。
+#
+# 这里为热点接口单独加一条更高优先级的策略规则，让「从热点接口进来的流量」查
+# main 表（本地直连）而不是 table 52。本机自己发起的流量不受影响，仍然经由
+# Tailscale 访问对端局域网。
+HOTSPOT_RULE_PREF=5000
+HOTSPOT_GUARDED="$BASE/hotspot-guarded"
+
+# 列出热点类接口名（拥有 A.B.C.1/24 地址且不属于常见非热点接口）。
+hotspot_interfaces() {
+    for IF in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}'); do
+        case "$IF" in
+            lo|dummy0|tailscale0|p2p*|wifi-aware0|sit0|gre0|gretap0|erspan0|\
+tunl0|ip_vti0|ip6tnl0|ip6gre0|ip6_vti0|rmnet*|r_rmnet*|mihoyo|ifb*)
+                continue
+                ;;
+        esac
+        ADDR="$(ip -4 addr show "$IF" 2>/dev/null |
+            sed -n 's/.*inet \([0-9.]*\)\/24.*/\1/p' | head -1)"
+        [ -n "$ADDR" ] || continue
+        case "$ADDR" in
+            *.1) printf '%s\n' "$IF" ;;
+        esac
+    done
+}
+
+# 取接口的 /24 网段（例如 192.168.43.0/24）
+hotspot_subnet() {
+    HS_ADDR="$(ip -4 addr show "$1" 2>/dev/null |
+        sed -n 's/.*inet \([0-9.]*\)\/24.*/\1/p' | head -1)"
+    [ -n "$HS_ADDR" ] || return 1
+    printf '%s.0/24\n' "${HS_ADDR%.*}"
+}
+
+hotspot_rule_present() {
+    ip rule show 2>/dev/null | grep -q "iif $1 lookup main"
+}
+
+# 让热点子网与 table 52 的冲突自动隔离；无冲突时保持系统原状。
+guard_hotspot_route() {
+    ip route show table 52 >/dev/null 2>&1 || {
+        # Tailscale 未运行或没有 table 52：清掉我们加过的规则
+        cleanup_hotspot_rules
+        return 0
+    }
+
+    WANT=""
+    for IF in $(hotspot_interfaces); do
+        SUBNET="$(hotspot_subnet "$IF")" || continue
+        # 只有真的和 Tailscale 路由表冲突才介入
+        if ip route show table 52 2>/dev/null | grep -q "^$SUBNET "; then
+            WANT="$WANT $IF"
+            if ! hotspot_rule_present "$IF"; then
+                if ip rule add iif "$IF" lookup main pref "$HOTSPOT_RULE_PREF" 2>/dev/null; then
+                    echo "$(date): $(msgf guard.hotspot_applied "$IF" "$SUBNET")" >> "$LOGFILE"
+                fi
+            fi
+        elif hotspot_rule_present "$IF"; then
+            ip rule del iif "$IF" lookup main pref "$HOTSPOT_RULE_PREF" 2>/dev/null &&
+                echo "$(date): $(msgf guard.hotspot_removed "$IF")" >> "$LOGFILE"
+        fi
+    done
+
+    # 记录本轮结果，供清理已消失接口的规则使用
+    printf '%s\n' "$WANT" | tr ' ' '\n' | grep . > "$HOTSPOT_GUARDED" 2>/dev/null || : > "$HOTSPOT_GUARDED"
+}
+
+cleanup_hotspot_rules() {
+    [ -f "$HOTSPOT_GUARDED" ] || return 0
+    while read -r IF; do
+        [ -n "$IF" ] || continue
+        hotspot_rule_present "$IF" &&
+            ip rule del iif "$IF" lookup main pref "$HOTSPOT_RULE_PREF" 2>/dev/null
+    done < "$HOTSPOT_GUARDED"
+    : > "$HOTSPOT_GUARDED"
+}
+
+watchdog_pid() {    W_PID="$(cat "$WATCHDOG_PIDFILE" 2>/dev/null)"
     [ -n "$W_PID" ] || return 1
     [ -r "/proc/$W_PID/cmdline" ] || return 1
     W_CMD="$(tr '\000' ' ' < "/proc/$W_PID/cmdline" 2>/dev/null)"

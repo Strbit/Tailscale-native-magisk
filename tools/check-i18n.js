@@ -26,10 +26,10 @@ const LANG_ZH = "zh-CN";
 const SUPPORTED = [LANG_EN, LANG_ZH];
 
 const EXPECTED = {
-  version: "0.5.6-zh",
-  versionCode: "506",
-  tag: "v0.5.6-zh",
-  zipName: "native-tailscale-magisk-bootstrap-v0.5.6-zh.zip",
+  version: "0.5.7-zh",
+  versionCode: "507",
+  tag: "v0.5.7-zh",
+  zipName: "native-tailscale-magisk-bootstrap-v0.5.7-zh.zip",
   forkRepo: "Strbit/Tailscale-native-magisk",
   forkRaw: "https://raw.githubusercontent.com/Strbit/Tailscale-native-magisk/main",
   releaseBase: "https://github.com/Strbit/Tailscale-native-magisk/releases/download",
