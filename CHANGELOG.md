@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.5.8-zh — 2026-10-29
+
+Fix hotspot-guard cleanup so stale policy rules never accumulate.
+
+### 中文
+
+- **修复热点保护的规则清理**。`0.5.7` 用 `grep "iif wlan2 lookup main"` 判断规则是
+  否存在，但接口消失后 `ip rule show` 会显示为
+  `iif wlan2 [detached] lookup main`，两个片段不再相邻，导致清理匹配失败、规则
+  永久残留。现在改为分两步匹配，并新增 `guarded_rule_ifaces` 直接枚举本模块插入
+  的所有规则，凡是本轮不再需要的（热点关闭、冲突消失、接口已消失）一律删除。
+- **日志兜底**：`guard_hotspot_route` 改用 `guard_msgf`，调用方未加载 `i18n.sh`
+  时退化为纯文本，不再写出空日志行。
+- **真机验证**：清理前存在两条 detached 残留规则（`192.168.43.1`、`wlan2`，
+  为前两轮测试遗留），调用一次 `guard_hotspot_route` 后全部移除，无残留。
+
+### English
+
+- **Fixed hotspot-guard rule cleanup.** `0.5.7` detected an existing rule with
+  `grep "iif wlan2 lookup main"`, but once the interface disappears
+  `ip rule show` renders it as `iif wlan2 [detached] lookup main`, so the two
+  fragments are no longer adjacent and the match failed, leaving rules behind
+  forever. It now matches in two steps and adds `guarded_rule_ifaces` to
+  enumerate every rule this module inserted, removing all that are no longer
+  needed this round (hotspot closed, conflict gone, interface disappeared).
+- **Logging fallback**: `guard_hotspot_route` now uses `guard_msgf`, which
+  degrades to plain text when the caller did not load `i18n.sh`, instead of
+  writing empty log lines.
+- **Verified on device**: two detached leftover rules (`192.168.43.1`, `wlan2`,
+  left by earlier tests) were removed by a single `guard_hotspot_route` call,
+  with no residue.
+
 ## 0.5.7-zh — 2026-10-29
 
 Add a hotspot route guard so accepting tailnet subnet routes no longer breaks

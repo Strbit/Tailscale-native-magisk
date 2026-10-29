@@ -1,7 +1,7 @@
 id=native_tailscale
 name=Native Tailscale TUN
-version=0.5.7-zh
-versionCode=507
+version=0.5.8-zh
+versionCode=508
 author=Iridule with help from OpenAI; Chinese localization by Strbit
 description=原生 Tailscale TUN：仪表盘登录、二进制校验更新与 KsuWebUI 控制。Root-native Tailscale with dashboard login and verified updates.
 updateJson=https://raw.githubusercontent.com/Strbit/Tailscale-native-magisk/main/update.json

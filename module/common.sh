@@ -220,7 +220,26 @@ hotspot_subnet() {
 }
 
 hotspot_rule_present() {
-    ip rule show 2>/dev/null | grep -q "iif $1 lookup main"
+    # 接口消失后规则会显示为 "iif wlan2 [detached] lookup main"，
+    # 因此分两步匹配，不能要求两个片段紧邻。
+    ip rule show 2>/dev/null | grep "iif $1" | grep -q "lookup main"
+}
+
+# 本模块插入的保护规则所对应的接口名（含已 detached 的）
+guarded_rule_ifaces() {
+    ip rule show 2>/dev/null |
+        sed -n "s/^${HOTSPOT_RULE_PREF}:.*iif \([^ ]*\).*lookup main.*/\1/p" |
+        sort -u
+}
+
+# 供日志使用：调用方未加载 i18n.sh 时退化为纯文本，避免写出空行
+guard_msgf() {
+    if command -v msgf >/dev/null 2>&1; then
+        msgf "$@"
+    else
+        shift
+        printf '%s\n' "$*"
+    fi
 }
 
 # 让热点子网与 table 52 的冲突自动隔离；无冲突时保持系统原状。
@@ -238,31 +257,35 @@ guard_hotspot_route() {
         if ip route show table 52 2>/dev/null | grep -q "^$SUBNET "; then
             WANT="$WANT $IF"
             if ! hotspot_rule_present "$IF"; then
-                if ip rule add iif "$IF" lookup main pref "$HOTSPOT_RULE_PREF" 2>/dev/null; then
-                    echo "$(date): $(msgf guard.hotspot_applied "$IF" "$SUBNET")" >> "$LOGFILE"
-                fi
+                ip rule add iif "$IF" lookup main pref "$HOTSPOT_RULE_PREF" 2>/dev/null &&
+                    echo "$(date): $(guard_msgf guard.hotspot_applied "$IF" "$SUBNET")" >> "$LOGFILE"
             fi
-        elif hotspot_rule_present "$IF"; then
-            ip rule del iif "$IF" lookup main pref "$HOTSPOT_RULE_PREF" 2>/dev/null &&
-                echo "$(date): $(msgf guard.hotspot_removed "$IF")" >> "$LOGFILE"
         fi
     done
 
-    # 记录本轮结果，供清理已消失接口的规则使用
-    printf '%s\n' "$WANT" | tr ' ' '\n' | grep . > "$HOTSPOT_GUARDED" 2>/dev/null || : > "$HOTSPOT_GUARDED"
+    # 释放不再需要的规则：热点关闭、冲突消失、或接口已消失（detached）
+    for IF in $(guarded_rule_ifaces); do
+        case " $WANT " in
+            *" $IF "*) continue ;;
+        esac
+        ip rule del iif "$IF" lookup main pref "$HOTSPOT_RULE_PREF" 2>/dev/null &&
+            echo "$(date): $(guard_msgf guard.hotspot_removed "$IF")" >> "$LOGFILE"
+    done
+
+    # 记录本轮结果，便于排查
+    printf '%s\n' $WANT | grep . > "$HOTSPOT_GUARDED" 2>/dev/null || : > "$HOTSPOT_GUARDED"
 }
 
 cleanup_hotspot_rules() {
-    [ -f "$HOTSPOT_GUARDED" ] || return 0
-    while read -r IF; do
+    for IF in $(guarded_rule_ifaces); do
         [ -n "$IF" ] || continue
-        hotspot_rule_present "$IF" &&
-            ip rule del iif "$IF" lookup main pref "$HOTSPOT_RULE_PREF" 2>/dev/null
-    done < "$HOTSPOT_GUARDED"
+        ip rule del iif "$IF" lookup main pref "$HOTSPOT_RULE_PREF" 2>/dev/null
+    done
     : > "$HOTSPOT_GUARDED"
 }
 
-watchdog_pid() {    W_PID="$(cat "$WATCHDOG_PIDFILE" 2>/dev/null)"
+watchdog_pid() {
+    W_PID="$(cat "$WATCHDOG_PIDFILE" 2>/dev/null)"
     [ -n "$W_PID" ] || return 1
     [ -r "/proc/$W_PID/cmdline" ] || return 1
     W_CMD="$(tr '\000' ' ' < "/proc/$W_PID/cmdline" 2>/dev/null)"
