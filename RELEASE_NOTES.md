@@ -1,103 +1,126 @@
-# Native Tailscale TUN v0.5.8-zh
+# Native Tailscale TUN v0.5.9-zh
 
-Fixes hotspot-guard rule cleanup so stale policy rules never accumulate.
+Rewrites the subnet-route guard so that enabling "accept subnet routes" no longer
+breaks the phone's local network. The previous guard only covered the forward
+direction and only recognised hotspot interfaces; both gaps are fixed.
 
 ## 中文
 
-修复热点保护的规则清理缺陷，避免策略规则永久残留。
+重写子网路由保护：开启「接受子网路由」后不再破坏本机局域网。上一版只覆盖去程、
+且只识别热点接口，这两个缺口都已修复。
 
-### 本次修复
+### 问题
 
-`0.5.7` 判断规则是否存在时用的是 `grep "iif wlan2 lookup main"`。但接口消失后
-`ip rule show` 会显示为：
+对端节点通告的子网路由若与本机所在网段相同（Android 手机热点默认都是
+`192.168.43.0/24`），Tailscale 会把 `192.168.43.0/24 dev tailscale0` 装进策略
+路由表 52。此时本机与局域网之间的流量会被吸进隧道。
 
-```
-5000: from all iif wlan2 [detached] lookup main
-```
+旧版保护的规则是 `ip rule add iif <热点接口> lookup main`，存在两个缺口：
 
-`[detached]` 插在两个片段之间，导致匹配失败，规则永远不会被删除。真机上确实
-留下了两条（`192.168.43.1`、`wlan2`，前两轮测试的遗留）。
-
-现在改为分两步匹配，并新增 `guarded_rule_ifaces` 直接枚举本模块插入的所有规则；
-本轮不再需要的（热点关闭、冲突消失、接口已消失）一律删除。
-
-另外 `guard_hotspot_route` 的日志改用 `guard_msgf`：调用方没加载 `i18n.sh` 时
-退化为纯文本，不再写出空日志行。
-
-### 验证
-
-- 清理前：2 条 detached 残留规则；
-- 调用一次 `guard_hotspot_route` 后：0 条残留；
-- 热点开启/关闭循环中，规则的插入与释放均正常，日志记录完整。
-
-### 功能回顾（0.5.7 引入）
-
-热点子网与 Tailnet 子网路由同网段时，为热点接口插入
-`ip rule add iif <热点接口> lookup main pref 5000`：
-
-| 测试 | 结果 |
+| 缺口 | 后果 |
 | --- | --- |
-| 热点客户端 → 同网段设备 | `dev <热点接口>`（留在本地） |
-| 手机自身 → 对端局域网 | `dev tailscale0`（不受影响） |
-| 热点客户端 → 互联网 | 正常经 VPN |
+| 只匹配"从热点接口进来"的包 | 回程包（外网 → 客户端）从 rmnet 进入，不匹配，仍被吞掉；客户端 TCP 卡在 `SYN_RECV`，能发请求收不到回应 |
+| 只识别"地址以 .1 结尾"的热点接口 | 本机作为**客户端**接入同网段网络时（连另一台手机的热点），自身流量同样被抢，却完全没有保护 |
+
+### 修复
+
+- 判定改为**网段重叠**（含前缀包含关系，`192.168.0.0/16` 这类超网也能识别），
+  不再要求精确等于 `/24`。
+- 覆盖**本机全部 IPv4 接口**，不再限定 `.1` 地址，客户端模式同样受保护。
+- 插入**目标匹配**规则：
+
+  ```
+  ip rule add to <本地网段> lookup main pref 4999
+  ```
+
+  pref `4999` 优先于 Tailscale 的 `5270`，一条规则同时覆盖去程、回程和本机自身。
+
+无冲突时不插入任何规则，完全保持系统原状。
+
+### 真机验证（Android 17 / KernelSU / arm64）
+
+场景：A 手机作为客户端接入 B 手机的热点（`wlan0=192.168.43.56`），对端通告
+`192.168.43.0/24`。
+
+| 路径 | 修复前 | 修复后 |
+| --- | --- | --- |
+| A → 电脑 `192.168.43.163` | `dev tailscale0 table 52` | `dev wlan0` |
+| A → 网关 `192.168.43.1` | `dev tailscale0 table 52` | `dev wlan0` |
+| A → 公网 `223.5.5.5` | 正常 | 正常（不受影响） |
+| 电脑 → A ping | 不通 | 通（14ms） |
+| 电脑 → `http://192.168.43.56:5244/` | 不通 | HTTP 200 |
+
+开关联动：关闭 accept-routes 后规则自动释放（0 条），重新开启后自动重插（1 条），
+日志完整记录应用/释放/再应用，无残留。
 
 ## English
 
-Fixes hotspot-guard rule cleanup so stale policy rules never accumulate.
+Rewrites the subnet-route guard so that enabling "accept subnet routes" no longer
+breaks the phone's local network. The previous guard only covered the forward
+direction and only recognised hotspot interfaces; both gaps are fixed.
 
-### Fixed
+### Problem
 
-`0.5.7` detected an existing rule with `grep "iif wlan2 lookup main"`. But once
-the interface disappears, `ip rule show` renders:
+When a peer advertises a subnet route identical to the one the phone is already on
+(Android hotspots all default to `192.168.43.0/24`), Tailscale installs
+`192.168.43.0/24 dev tailscale0` into policy routing table 52, pulling LAN traffic
+into the tunnel.
 
-```
-5000: from all iif wlan2 [detached] lookup main
-```
+The old guard used `ip rule add iif <hotspot-iface> lookup main` and had two gaps:
 
-The `[detached]` marker sits between the two fragments, so the match failed and
-the rule was never removed. Two such rules were actually left behind on the test
-device (`192.168.43.1`, `wlan2`, from earlier test rounds).
-
-It now matches in two steps and adds `guarded_rule_ifaces` to enumerate every
-rule this module inserted, removing all that are no longer needed this round
-(hotspot closed, conflict gone, interface disappeared).
-
-Logging in `guard_hotspot_route` now uses `guard_msgf`, which degrades to plain
-text when the caller did not load `i18n.sh`, instead of writing empty log lines.
-
-### Verified
-
-- before cleanup: 2 detached leftover rules;
-- after one `guard_hotspot_route` call: 0 leftovers;
-- across hotspot on/off cycles the rule is added and released correctly with
-  complete log records.
-
-### Feature recap (introduced in 0.5.7)
-
-When the hotspot subnet collides with a tailnet subnet route, a
-higher-priority rule is added for the hotspot interface:
-
-```
-ip rule add iif <hotspot-iface> lookup main pref 5000
-```
-
-| Test | Result |
+| Gap | Consequence |
 | --- | --- |
-| hotspot client → same-subnet device | `dev <hotspot-iface>` (stays local) |
-| phone itself → peer LAN | `dev tailscale0` (unaffected) |
-| hotspot client → internet | works via VPN |
+| Matched only packets arriving on the hotspot interface | Return packets (internet → client) enter via rmnet, do not match, and are still swallowed; client TCP sticks in `SYN_RECV` — requests go out, replies never arrive |
+| Required an interface address ending in `.1` | When the phone is a **client** on a colliding subnet (joined another phone's hotspot), its own traffic was hijacked with no protection at all |
+
+### Fix
+
+- Detection now uses **prefix overlap** (including containment, so a
+  `192.168.0.0/16` supernet is caught) instead of an exact `/24` match.
+- **All IPv4 interfaces** are considered, not only `.1` addresses, so the
+  client-mode case is protected.
+- A **destination-based** rule is inserted:
+
+  ```
+  ip rule add to <subnet> lookup main pref 4999
+  ```
+
+  Pref `4999` precedes Tailscale's `5270`, so one rule covers forward, return, and
+  phone-originated traffic.
+
+When there is no conflict, no rule is inserted and the system is left untouched.
+
+### Verified on a real device (Android 17 / KernelSU / arm64)
+
+Scenario: phone A joined phone B's hotspot as a client (`wlan0=192.168.43.56`),
+peer advertising `192.168.43.0/24`.
+
+| Path | Before | After |
+| --- | --- | --- |
+| A → PC `192.168.43.163` | `dev tailscale0 table 52` | `dev wlan0` |
+| A → gateway `192.168.43.1` | `dev tailscale0 table 52` | `dev wlan0` |
+| A → internet `223.5.5.5` | fine | fine (unaffected) |
+| PC → A ping | unreachable | reachable (14 ms) |
+| PC → `http://192.168.43.56:5244/` | unreachable | HTTP 200 |
+
+Toggle check: turning accept-routes off releases the rule (0 rules), turning it
+back on re-adds it (1 rule); the log records applied/released/re-applied with no
+residue.
 
 ## Important
 
 - ARM64 only.
-- The guard acts only on a real subnet collision.
+- When both networks share one subnet, only local access can win: devices on the
+  phone's own LAN take priority over the peer's identically-numbered subnet. Two
+  private networks with the same prefix cannot both be routed.
 - Reboot after installing so `service.sh` starts the watchdog with the new code.
 - Existing identity under `/data/adb/tailscale-native` remains preserved.
 
 ## 重要说明
 
 - 仅支持 ARM64。
-- 该保护只在真正发生同网段冲突时介入。
+- 两侧同网段时只能"本地优先"：本机所在局域网优先于对端同号网段。两个同前缀的私有
+  网络无法同时路由，这是拓扑层面的限制，不是配置问题。
 - 安装后请重启，让 `service.sh` 用新代码启动看护器。
 - `/data/adb/tailscale-native` 中已有的身份会被保留。
 

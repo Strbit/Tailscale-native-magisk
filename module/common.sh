@@ -181,20 +181,28 @@ move_daemon_to_system_cgroup() {
     [ "$MOVE_ANY" -eq 1 ]
 }
 
-# --- 本地热点子网保护 -------------------------------------------------------
+# --- 本地网段保护 -----------------------------------------------------------
 #
 # Tailscale 的 accept-routes 会把对端通告的子网路由装进 table 52。Android 手机
-# 热点默认使用 192.168.43.0/24，一旦对端通告的也是同一网段，本机热点下设备的
-# 转发流量就会被 table 52 抢走，表现为"热点里的设备访问不了本地网络"。
+# 热点默认使用 192.168.43.0/24，一旦对端通告的也是同一网段，本机与局域网之间的
+# 流量会被 tailscale0 抢走，表现为「热点里的设备访问不了本地网络」甚至整段断网。
 #
-# 这里为热点接口单独加一条更高优先级的策略规则，让「从热点接口进来的流量」查
-# main 表（本地直连）而不是 table 52。本机自己发起的流量不受影响，仍然经由
-# Tailscale 访问对端局域网。
-HOTSPOT_RULE_PREF=5000
-HOTSPOT_GUARDED="$BASE/hotspot-guarded"
+# 早期版本只加了 `iif <热点接口>` 规则，有两个缺口：
+#   1. 只覆盖去程。回程包（外网 → 客户端）从 rmnet/wlan0 进入，不匹配 iif，
+#      仍被表 52 吞掉，客户端 TCP 卡在 SYN_RECV（实测 conntrack 满屏 SYN_RECV）。
+#   2. 只识别「地址以 .1 结尾的热点接口」。本机作为客户端接入同网段的网络时
+#      （例如手机连另一台手机的热点），本机自身流量同样被抢，却没有保护。
+#
+# 现在改为按「网段重叠」判定，并插入一条目标匹配的规则：
+#   pref 4999  to <本地网段> lookup main
+# 它优先于 Tailscale 的 5270，让该网段的所有流量（去程、回程、本机自身）
+# 都回到本地直连路由。无冲突时自动释放，完全保持系统原状。
+GUARD_PREF_TO=4999
+GUARD_RULES_FILE="$BASE/guard-rules"
+GUARD_LOCAL_LIST="$BASE/guard-local.tmp"
 
-# 列出热点类接口名（拥有 A.B.C.1/24 地址且不属于常见非热点接口）。
-hotspot_interfaces() {
+# 本机各接口的 IPv4 网段，输出 "接口|地址|前缀长度"
+local_ipv4_subnets() {
     for IF in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}'); do
         case "$IF" in
             lo|dummy0|tailscale0|p2p*|wifi-aware0|sit0|gre0|gretap0|erspan0|\
@@ -202,34 +210,76 @@ tunl0|ip_vti0|ip6tnl0|ip6gre0|ip6_vti0|rmnet*|r_rmnet*|mihoyo|ifb*)
                 continue
                 ;;
         esac
-        ADDR="$(ip -4 addr show "$IF" 2>/dev/null |
-            sed -n 's/.*inet \([0-9.]*\)\/24.*/\1/p' | head -1)"
-        [ -n "$ADDR" ] || continue
-        case "$ADDR" in
-            *.1) printf '%s\n' "$IF" ;;
-        esac
+        ip -o -4 addr show "$IF" 2>/dev/null | while read -r LINE; do
+            CIDR="$(printf '%s\n' "$LINE" |
+                sed -n 's/.*inet \([0-9.]*\/[0-9]*\).*/\1/p')"
+            [ -n "$CIDR" ] || continue
+            ADDR="${CIDR%%/*}"
+            PREFIX="${CIDR##*/}"
+            [ "$PREFIX" -le 30 ] 2>/dev/null || continue
+            printf '%s|%s|%s\n' "$IF" "$ADDR" "$PREFIX"
+        done
     done
 }
 
-# 取接口的 /24 网段（例如 192.168.43.0/24）
-hotspot_subnet() {
-    HS_ADDR="$(ip -4 addr show "$1" 2>/dev/null |
-        sed -n 's/.*inet \([0-9.]*\)\/24.*/\1/p' | head -1)"
-    [ -n "$HS_ADDR" ] || return 1
-    printf '%s.0/24\n' "${HS_ADDR%.*}"
+# 计算网段地址：network_address 192.168.43.56 24 -> 192.168.43.0
+network_address() {
+    printf '%s %s\n' "$1" "$2" | awk '{
+        split($1, o, ".");
+        n = ($2 + 0);
+        if (n >= 32) { print $1; exit }
+        full = int(n / 8);
+        rem  = n % 8;
+        out  = "";
+        for (i = 1; i <= 4; i++) {
+            if (i <= full) v = o[i] + 0;
+            else if (i == full + 1) v = (o[i] + 0) - ((o[i] + 0) % (2 ^ (8 - rem)));
+            else v = 0;
+            out = out (i > 1 ? "." : "") v;
+        }
+        print out;
+    }'
 }
 
-hotspot_rule_present() {
-    # 接口消失后规则会显示为 "iif wlan2 [detached] lookup main"，
-    # 因此分两步匹配，不能要求两个片段紧邻。
-    ip rule show 2>/dev/null | grep "iif $1" | grep -q "lookup main"
+# 两个 IPv4 网段是否重叠（含包含关系，例如 192.168.0.0/16 覆盖 192.168.43.0/24）
+subnets_overlap() {
+    A_ADDR="${1%%/*}"
+    A_LEN="${1##*/}"
+    B_ADDR="${2%%/*}"
+    B_LEN="${2##*/}"
+    [ -n "$A_LEN" ] && [ -n "$B_LEN" ] || return 1
+    MIN="$A_LEN"
+    [ "$B_LEN" -lt "$MIN" ] && MIN="$B_LEN"
+    [ "$(network_address "$A_ADDR" "$MIN")" = "$(network_address "$B_ADDR" "$MIN")" ]
 }
 
-# 本模块插入的保护规则所对应的接口名（含已 detached 的）
-guarded_rule_ifaces() {
-    ip rule show 2>/dev/null |
-        sed -n "s/^${HOTSPOT_RULE_PREF}:.*iif \([^ ]*\).*lookup main.*/\1/p" |
-        sort -u
+# 若 table 52 中存在与给定网段重叠的路由，输出该路由网段
+tailnet_claims_subnet() {
+    ip route show table 52 2>/dev/null | while read -r ROUTE; do
+        [ -n "$ROUTE" ] || continue
+        R_NET="${ROUTE%% *}"
+        case "$R_NET" in
+            */*) ;;
+            *) continue ;;
+        esac
+        if subnets_overlap "$1" "$R_NET"; then
+            printf '%s\n' "$R_NET"
+            break
+        fi
+    done
+}
+
+# 本模块当前生效的保护规则（pref 4999），输出 "to <网段>"
+guard_active_rules() {
+    ip rule show 2>/dev/null | while read -r LINE; do
+        case "$LINE" in
+            "${GUARD_PREF_TO}:"*)
+                SEL="$(printf '%s\n' "$LINE" |
+                    sed -n 's/.*\(to [^ ]*\) lookup main.*/\1/p')"
+                [ -n "$SEL" ] && printf '%s\n' "$SEL"
+                ;;
+        esac
+    done
 }
 
 # 供日志使用：调用方未加载 i18n.sh 时退化为纯文本，避免写出空行
@@ -242,46 +292,54 @@ guard_msgf() {
     fi
 }
 
-# 让热点子网与 table 52 的冲突自动隔离；无冲突时保持系统原状。
+# 让本地网段与 table 52 的冲突自动隔离；无冲突时保持系统原状。
 guard_hotspot_route() {
-    ip route show table 52 >/dev/null 2>&1 || {
-        # Tailscale 未运行或没有 table 52：清掉我们加过的规则
-        cleanup_hotspot_rules
-        return 0
-    }
+    local_ipv4_subnets > "$GUARD_LOCAL_LIST" 2>/dev/null
 
     WANT=""
-    for IF in $(hotspot_interfaces); do
-        SUBNET="$(hotspot_subnet "$IF")" || continue
-        # 只有真的和 Tailscale 路由表冲突才介入
-        if ip route show table 52 2>/dev/null | grep -q "^$SUBNET "; then
-            WANT="$WANT $IF"
-            if ! hotspot_rule_present "$IF"; then
-                ip rule add iif "$IF" lookup main pref "$HOTSPOT_RULE_PREF" 2>/dev/null &&
-                    echo "$(date): $(guard_msgf guard.hotspot_applied "$IF" "$SUBNET")" >> "$LOGFILE"
-            fi
+    if ip route show table 52 >/dev/null 2>&1; then
+        while IFS='|' read -r IF ADDR PREFIX; do
+            [ -n "$IF" ] || continue
+            SUBNET="$(network_address "$ADDR" "$PREFIX")/$PREFIX"
+            ROUTE_NET="$(tailnet_claims_subnet "$SUBNET")"
+            [ -n "$ROUTE_NET" ] || continue
+            WANT="$WANT
+to $SUBNET"
+        done < "$GUARD_LOCAL_LIST"
+    fi
+
+    WANT="$(printf '%s\n' "$WANT" | grep . | sort -u)"
+    HAVE="$(guard_active_rules | grep . | sort -u)"
+
+    # 新增缺失的规则
+    printf '%s\n' "$WANT" | while IFS= read -r SEL; do
+        [ -n "$SEL" ] || continue
+        printf '%s\n' "$HAVE" | grep -qxF "$SEL" && continue
+        # SEL 形如 "to 192.168.43.0/24"，需要按词传入
+        if ip rule add $SEL lookup main pref "$GUARD_PREF_TO" 2>/dev/null; then
+            echo "$(date): $(guard_msgf guard.hotspot_applied "$SEL")" >> "$LOGFILE"
         fi
     done
 
-    # 释放不再需要的规则：热点关闭、冲突消失、或接口已消失（detached）
-    for IF in $(guarded_rule_ifaces); do
-        case " $WANT " in
-            *" $IF "*) continue ;;
-        esac
-        ip rule del iif "$IF" lookup main pref "$HOTSPOT_RULE_PREF" 2>/dev/null &&
-            echo "$(date): $(guard_msgf guard.hotspot_removed "$IF")" >> "$LOGFILE"
+    # 释放不再需要的规则（冲突消失、接口消失、Tailscale 停止）
+    printf '%s\n' "$HAVE" | while IFS= read -r SEL; do
+        [ -n "$SEL" ] || continue
+        printf '%s\n' "$WANT" | grep -qxF "$SEL" && continue
+        if ip rule del $SEL lookup main pref "$GUARD_PREF_TO" 2>/dev/null; then
+            echo "$(date): $(guard_msgf guard.hotspot_removed "$SEL")" >> "$LOGFILE"
+        fi
     done
 
-    # 记录本轮结果，便于排查
-    printf '%s\n' $WANT | grep . > "$HOTSPOT_GUARDED" 2>/dev/null || : > "$HOTSPOT_GUARDED"
+    printf '%s\n' "$WANT" > "$GUARD_RULES_FILE" 2>/dev/null
+    rm -f "$GUARD_LOCAL_LIST" 2>/dev/null
 }
 
 cleanup_hotspot_rules() {
-    for IF in $(guarded_rule_ifaces); do
-        [ -n "$IF" ] || continue
-        ip rule del iif "$IF" lookup main pref "$HOTSPOT_RULE_PREF" 2>/dev/null
+    guard_active_rules | while IFS= read -r SEL; do
+        [ -n "$SEL" ] || continue
+        ip rule del $SEL lookup main pref "$GUARD_PREF_TO" 2>/dev/null
     done
-    : > "$HOTSPOT_GUARDED"
+    : > "$GUARD_RULES_FILE"
 }
 
 watchdog_pid() {

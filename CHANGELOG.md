@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.5.9-zh — 2026-10-31
+
+Rewrite the subnet-route guard: cover the return path and the client-mode case.
+
+### 中文
+
+前几版的热点保护有两个缺口，实测确认后一并重写：
+
+1. **只覆盖去程**。规则选择器是 `iif <热点接口>`，只匹配"从热点接口进来"的包。
+   回程包（外网 → 客户端）从 `rmnet`/`wlan0` 进入，不匹配该规则，仍被 table 52
+   的 `192.168.43.0/24` 吞掉。现场 conntrack 满屏 `SYN_RECV`（178 → 215 持续
+   增长，几乎无 `ESTABLISHED`），客户端能发出请求却永远收不到回应。
+2. **只识别热点接口**。判定条件是"地址以 `.1` 结尾的网段接口"。当本机作为
+   **客户端**接入同网段的网络时（手机连另一台手机的热点，`wlan0=192.168.43.56`），
+   本机自身与局域网之间的流量同样被抢，却完全不在保护范围内。
+
+重写后的做法：
+
+- 按**网段重叠**判定（改为判定前缀包含关系，能识别 `192.168.0.0/16` 这类超网，
+  不再要求精确等于 `/24`）。
+- 覆盖**本机所有 IPv4 接口**，不再限定 `.1` 地址，客户端模式同样受保护。
+- 插入**目标匹配**规则 `to <本地网段> lookup main`，pref `4999`（优先于
+  Tailscale 的 `5270`），一次性覆盖去程、回程与本机自身三个方向。
+
+真机验证（Android 17 / KernelSU / arm64；A 作为客户端接入 B 的热点
+`wlan0=192.168.43.56`，对端通告 `192.168.43.0/24`）：
+
+| 路径 | 修复前 | 修复后 |
+| --- | --- | --- |
+| A → 电脑 `192.168.43.163` | `dev tailscale0 table 52` | `dev wlan0` |
+| A → 网关 `192.168.43.1` | `dev tailscale0 table 52` | `dev wlan0` |
+| A → 公网 `223.5.5.5` | 正常 | 正常（不受影响） |
+| 电脑 → A ping / 5244 端口 | 不通 | 通（HTTP 200） |
+
+开关联动验证：关闭 accept-routes 后规则自动释放（0 条），重新开启后自动重插
+（1 条），日志记录应用/释放/再应用三次转换，无残留。
+
+### English
+
+The previous hotspot guard had two gaps, both confirmed by measurement, so it was
+rewritten:
+
+1. **Forward direction only.** The selector was `iif <hotspot-iface>`, matching
+   only packets arriving on that interface. Return packets (internet → client)
+   enter via `rmnet`/`wlan0`, do not match, and were still swallowed by
+   table 52's `192.168.43.0/24`. Field conntrack showed `SYN_RECV` piling up
+   (178 → 215, almost no `ESTABLISHED`): clients sent requests but never got a
+   reply.
+2. **Hotspot interfaces only.** Detection required an interface whose address
+   ends in `.1`. When the phone is a **client** on a colliding subnet
+   (`wlan0=192.168.43.56` on another phone's hotspot), the phone's own LAN
+   traffic was hijacked too and was not covered at all.
+
+What changed:
+
+- Detection now works by **prefix overlap** (including containment, so a
+  `192.168.0.0/16` supernet is caught), no longer requiring an exact `/24` match.
+- **All IPv4 interfaces** are considered, not just `.1` addresses, so the
+  client-mode case is protected.
+- A **destination-based** rule `to <subnet> lookup main` at pref `4999` (ahead of
+  Tailscale's `5270`) covers forward, return, and phone-originated traffic in one
+  rule.
+
+Verified on a real device (Android 17 / KernelSU / arm64; phone A as a client of
+phone B's hotspot, `wlan0=192.168.43.56`, peer advertising `192.168.43.0/24`):
+
+| Path | Before | After |
+| --- | --- | --- |
+| A → PC `192.168.43.163` | `dev tailscale0 table 52` | `dev wlan0` |
+| A → gateway `192.168.43.1` | `dev tailscale0 table 52` | `dev wlan0` |
+| A → internet `223.5.5.5` | fine | fine (unaffected) |
+| PC → A ping / port 5244 | unreachable | reachable (HTTP 200) |
+
+Toggle check: turning accept-routes off releases the rule automatically (0
+rules), turning it back on re-adds it (1 rule), and the log records all three
+transitions with no residue.
+
 ## 0.5.8-zh — 2026-10-29
 
 Fix hotspot-guard cleanup so stale policy rules never accumulate.
